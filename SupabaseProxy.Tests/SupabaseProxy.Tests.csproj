@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SupabaseProxy.Application\SupabaseProxy.Application.csproj" />
+    <ProjectReference Include="..\SupabaseProxy.Infrastructure\SupabaseProxy.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
