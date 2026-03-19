@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="SupabaseProxy.API/SupabaseProxy.API.csproj" />
+  <Project Path="SupabaseProxy.Application/SupabaseProxy.Application.csproj" />
+  <Project Path="SupabaseProxy.Domain/SupabaseProxy.Domain.csproj" />
+  <Project Path="SupabaseProxy.Infrastructure/SupabaseProxy.Infrastructure.csproj" />
+  <Project Path="SupabaseProxy.Tests/SupabaseProxy.Tests.csproj" />
+</Solution>

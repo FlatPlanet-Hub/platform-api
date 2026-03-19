@@ -1,0 +1,47 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opencover.xml
+*.coverage
+*.coveragexml
+TestResults/
+[Rr]elease/
+[Dd]ebug/
+x64/
+x86/
+build/
+bld/
+*.nupkg
+*.snupkg
+packages/
+*.lock.json
+!packages.lock.json
+
+## Secrets / environment
+appsettings.Development.json
+appsettings.Production.json
+.env
+*.pfx
+*.p12
+secrets.json
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## JetBrains / Rider
+.idea/
+*.sln.iml
+
+## VS Code
+.vscode/
