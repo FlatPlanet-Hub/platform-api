@@ -43,6 +43,9 @@ public static class InfrastructureExtensions
         services.AddScoped<IAdminUserService, AdminUserService>();
         services.AddScoped<IAdminRoleService, AdminRoleService>();
 
+        // Feature 4 — GitHub Repo Service
+        services.AddScoped<IGitHubRepoService, GitHubRepoService>();
+
         // GitHub OAuth HTTP client
         services.AddHttpClient<IGitHubOAuthService, GitHubOAuthService>();
 

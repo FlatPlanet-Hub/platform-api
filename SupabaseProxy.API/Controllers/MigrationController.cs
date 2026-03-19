@@ -1,10 +1,10 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupabaseProxy.API.Middleware;
 using SupabaseProxy.Application.Common.Helpers;
 using SupabaseProxy.Application.DTOs;
 using SupabaseProxy.Application.Interfaces;
-using SupabaseProxy.Domain.Entities;
 
 namespace SupabaseProxy.API.Controllers;
 
@@ -14,10 +14,12 @@ namespace SupabaseProxy.API.Controllers;
 public sealed class MigrationController : ControllerBase
 {
     private readonly IDbProxyService _dbProxy;
+    private readonly IGitHubRepoService _repoService;
 
-    public MigrationController(IDbProxyService dbProxy)
+    public MigrationController(IDbProxyService dbProxy, IGitHubRepoService repoService)
     {
         _dbProxy = dbProxy;
+        _repoService = repoService;
     }
 
     [HttpPost("create-schema")]
@@ -55,6 +57,7 @@ public sealed class MigrationController : ControllerBase
         }
 
         await _dbProxy.CreateTableAsync(claims.Schema, request);
+        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -80,6 +83,7 @@ public sealed class MigrationController : ControllerBase
         }
 
         await _dbProxy.AlterTableAsync(claims.Schema, request);
+        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -96,9 +100,25 @@ public sealed class MigrationController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("Invalid table name."));
 
         await _dbProxy.DropTableAsync(claims.Schema, table);
+        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
-    private ProjectClaims? GetClaims() =>
-        HttpContext.Items[ProjectScopeMiddleware.ClaimsKey] as ProjectClaims;
+    // Fire-and-forget style: DATA_DICTIONARY sync is best-effort — a GitHub failure
+    // must never roll back a successful DDL operation.
+    private async Task TrySyncDataDictionaryAsync(Domain.Entities.ProjectClaims claims)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            await _repoService.SyncDataDictionaryAsync(userId, Guid.Parse(claims.ProjectId), claims.Schema);
+        }
+        catch
+        {
+            // Intentionally swallowed — DDL succeeded; sync failure is non-fatal.
+        }
+    }
+
+    private Domain.Entities.ProjectClaims? GetClaims() =>
+        HttpContext.Items[ProjectScopeMiddleware.ClaimsKey] as Domain.Entities.ProjectClaims;
 }

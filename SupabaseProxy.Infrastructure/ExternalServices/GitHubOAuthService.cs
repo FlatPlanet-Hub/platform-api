@@ -25,7 +25,7 @@ public sealed class GitHubOAuthService : IGitHubOAuthService
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["client_id"] = _settings.ClientId;
         query["redirect_uri"] = _settings.RedirectUri;
-        query["scope"] = "user:email,repo";
+        query["scope"] = "user:email,repo,delete_repo";
         query["state"] = state;
         return $"https://github.com/login/oauth/authorize?{query}";
     }
