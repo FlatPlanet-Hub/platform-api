@@ -6,7 +6,47 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 ---
 
 ## [Unreleased]
-> Branch: `feature/admin-dashboard` → target: `develop`
+> Branch: `feature/github-repo-operations` → target: `develop`
+
+---
+
+## [0.4.0] — 2026-03-19
+> Branch: `feature/github-repo-operations` → `develop`
+> Commit: `4e28a56`
+
+### Added — Feature 4: GitHub Repository Operations via Proxy API
+- `POST /api/projects/{id}/repo` — create GitHub repo under org or personal account; seeds `PROJECT.md`, `DATA_DICTIONARY.md`, `README.md`, `.gitignore` as initial commit
+- `GET /api/projects/{id}/repo` — fetch live repo details from GitHub
+- `DELETE /api/projects/{id}/repo` — delete repo (requires `X-Confirm-Delete: true` header); org permission failure returns 403 with admin escalation message
+- `GET /api/projects/{id}/repo/files?path=&ref=` — read file (decoded) or directory listing
+- `GET /api/projects/{id}/repo/tree?ref=` — recursive file tree
+- `PUT /api/projects/{id}/repo/files` — create or update a single file
+- `DELETE /api/projects/{id}/repo/files` — delete a file by SHA
+- `POST /api/projects/{id}/repo/commits` — multi-file atomic commit via Git tree API (create / update / delete actions)
+- `GET /api/projects/{id}/repo/commits?branch=&page=&pageSize=` — paginated commit history
+- `GET /api/projects/{id}/repo/branches` — list branches with default flag
+- `POST /api/projects/{id}/repo/branches` — create branch from any ref
+- `DELETE /api/projects/{id}/repo/branches/{name}` — delete branch (default branch protected)
+- `POST /api/projects/{id}/repo/pulls` — create pull request
+- `GET /api/projects/{id}/repo/pulls?state=` — list PRs (open / closed / all)
+- `GET /api/projects/{id}/repo/pulls/{number}` — get PR details
+- `PUT /api/projects/{id}/repo/pulls/{number}/merge` — merge PR (merge / squash / rebase)
+- `GET /api/projects/{id}/repo/collaborators` — list repo collaborators
+- `POST /api/projects/{id}/repo/collaborators` — invite collaborator (pull / push / admin)
+- `DELETE /api/projects/{id}/repo/collaborators/{username}` — remove collaborator
+- `DATA_DICTIONARY.md` auto-synced to GitHub after every `create-table`, `alter-table`, `drop-table` — best-effort (GitHub failure never rolls back DDL)
+- Octokit.NET v14 used for all GitHub API operations
+- 9 new unit tests (69 total passing)
+
+### Changed
+- `GitHubOAuthService`: OAuth scope extended from `repo` to `repo,delete_repo`
+- `MigrationController`: injects `IGitHubRepoService`; triggers DATA_DICTIONARY sync after DDL
+
+---
+
+## [0.3.0] — 2026-03-19
+> Branch: `feature/admin-dashboard` → `develop`
+> Commit: `a9adfe9`
 
 ### Added — Feature 3: User Record Creation & Role Management (Admin Dashboard)
 - `GET /api/admin/users` — paginated user list with search, isActive, roleId filters
@@ -28,18 +68,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 - `RequirePermissionAttribute` — JWT-claim-based permission check; `platform_admin` bypasses all
 - `AdminUserService` / `AdminRoleService` with full audit logging
 - DB migration: `db/migrations/002_admin_dashboard.sql`
-- 11 new unit tests (AdminUserService + AdminRoleService)
+- 11 new unit tests (60 total passing)
 
 ### Changed
 - `platform.users`: dropped `display_name`; added `first_name`, `last_name`, `onboarded_by`
-- `platform.users`: `github_access_token` retained (future: Claude pushes to user's GitHub repos)
+- `platform.users`: `github_access_token` retained (used in Feature 4 for Claude→GitHub operations)
 - App JWT: added `permissions` claim (union of all custom role permissions); replaced `display_name` with `first_name` + `last_name`
 - `UpsertFromGitHubAsync`: preserves admin-set names on re-login; parses first/last from GitHub profile for new users
+- Login gate: users must be org members and pre-onboarded by an admin before OAuth login succeeds
 
 ---
 
-## [0.2.0] — merged to `develop`
+## [0.2.0] — 2026-03-19
 > Branch: `feature/github-auth-roles` → `develop`
+> PR: #1
+> Commit: `4d7b624`
 
 ### Added — Feature 2: GitHub OAuth Authentication, Roles & Access Control
 - GitHub OAuth2 login flow with CSRF protection (random `state` param in signed cookie)
