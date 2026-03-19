@@ -12,6 +12,7 @@ public sealed class UserService : IUserService
     private readonly IUserRepository _userRepo;
     private readonly IRoleRepository _roleRepo;
     private readonly IProjectRepository _projectRepo;
+    private readonly ICustomRoleRepository _customRoleRepo;
     private readonly IAuditService _audit;
     private readonly EncryptionSettings _encryption;
 
@@ -19,12 +20,14 @@ public sealed class UserService : IUserService
         IUserRepository userRepo,
         IRoleRepository roleRepo,
         IProjectRepository projectRepo,
+        ICustomRoleRepository customRoleRepo,
         IAuditService audit,
         IOptions<EncryptionSettings> encryption)
     {
         _userRepo = userRepo;
         _roleRepo = roleRepo;
         _projectRepo = projectRepo;
+        _customRoleRepo = customRoleRepo;
         _audit = audit;
         _encryption = encryption.Value;
     }
@@ -36,9 +39,9 @@ public sealed class UserService : IUserService
 
         if (existing is not null)
         {
+            // Update GitHub-owned fields; preserve admin-set first_name/last_name
             existing.GitHubUsername = profile.Login;
-            existing.Email = profile.Email;
-            existing.DisplayName = profile.Name ?? profile.Login;
+            existing.Email ??= profile.Email;
             existing.AvatarUrl = profile.AvatarUrl;
             existing.GitHubAccessToken = encryptedToken;
             existing.UpdatedAt = DateTime.UtcNow;
@@ -46,13 +49,17 @@ public sealed class UserService : IUserService
             return existing;
         }
 
+        // New user (not pre-onboarded): parse name from GitHub profile
+        var (firstName, lastName) = ParseName(profile.Name ?? profile.Login);
+
         var newUser = new User
         {
             Id = Guid.NewGuid(),
             GitHubId = profile.Id,
             GitHubUsername = profile.Login,
+            FirstName = firstName,
+            LastName = lastName,
             Email = profile.Email,
-            DisplayName = profile.Name ?? profile.Login,
             AvatarUrl = profile.AvatarUrl,
             GitHubAccessToken = encryptedToken,
             IsActive = true,
@@ -83,7 +90,8 @@ public sealed class UserService : IUserService
         {
             Id = user.Id,
             GitHubUsername = user.GitHubUsername,
-            DisplayName = user.DisplayName,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
             Email = user.Email,
             AvatarUrl = user.AvatarUrl,
             SystemRoles = systemRoles,
@@ -147,4 +155,34 @@ public sealed class UserService : IUserService
 
     public async Task<IEnumerable<Role>> GetSystemRolesAsync() =>
         await _roleRepo.GetAllAsync();
+
+    public async Task<IEnumerable<string>> GetEffectivePermissionsAsync(Guid userId, IEnumerable<string> systemRoles)
+    {
+        var permissions = new HashSet<string>();
+
+        // platform_admin gets all admin permissions
+        if (systemRoles.Contains("platform_admin"))
+        {
+            permissions.UnionWith(["manage_users", "manage_roles", "view_audit_log",
+                                   "read", "write", "ddl", "manage_members", "delete_project"]);
+        }
+
+        // Union permissions from all assigned custom roles
+        var customRoles = await _customRoleRepo.GetByUserIdAsync(userId);
+        foreach (var role in customRoles)
+            permissions.UnionWith(role.Permissions);
+
+        return permissions;
+    }
+
+    private static (string? firstName, string? lastName) ParseName(string fullName)
+    {
+        var parts = fullName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => (null, null),
+            1 => (parts[0], null),
+            _ => (parts[0], parts[1])
+        };
+    }
 }

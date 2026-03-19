@@ -13,11 +13,12 @@ public sealed class UserServiceTests
     private readonly Mock<IUserRepository> _userRepo = new();
     private readonly Mock<IRoleRepository> _roleRepo = new();
     private readonly Mock<IProjectRepository> _projectRepo = new();
+    private readonly Mock<ICustomRoleRepository> _customRoleRepo = new();
     private readonly Mock<IAuditService> _audit = new();
     private readonly IOptions<EncryptionSettings> _encryption = Options.Create(new EncryptionSettings { Key = "test_key_32_chars_exactly_here!!" });
 
     private UserService CreateSut() =>
-        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _audit.Object, _encryption);
+        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _customRoleRepo.Object, _audit.Object, _encryption);
 
     [Fact]
     public async Task UpsertFromGitHub_ShouldCreateUser_WhenUserDoesNotExist()
@@ -34,6 +35,8 @@ public sealed class UserServiceTests
 
         Assert.Equal(profile.Login, result.GitHubUsername);
         Assert.Equal(profile.Id, result.GitHubId);
+        Assert.Equal("John", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
         _userRepo.Verify(r => r.CreateAsync(It.IsAny<User>()), Times.Once);
         _userRepo.Verify(r => r.AssignSystemRoleAsync(result.Id, userRole.Id, result.Id), Times.Once);
     }
@@ -41,7 +44,7 @@ public sealed class UserServiceTests
     [Fact]
     public async Task UpsertFromGitHub_ShouldUpdateUser_WhenUserExists()
     {
-        var existing = new User { Id = Guid.NewGuid(), GitHubId = 12345, GitHubUsername = "old", DisplayName = "Old Name", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var existing = new User { Id = Guid.NewGuid(), GitHubId = 12345, GitHubUsername = "old", FirstName = "Old", LastName = "Name", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
         var profile = new GitHubUserProfile { Id = 12345, Login = "johndoe", Name = "John Doe", AccessToken = "ghp_token" };
 
         _userRepo.Setup(r => r.GetByGitHubIdAsync(profile.Id)).ReturnsAsync(existing);
@@ -50,8 +53,10 @@ public sealed class UserServiceTests
         var sut = CreateSut();
         var result = await sut.UpsertFromGitHubAsync(profile);
 
+        // GitHub username is updated; admin-set first/last name preserved
         Assert.Equal("johndoe", result.GitHubUsername);
-        Assert.Equal("John Doe", result.DisplayName);
+        Assert.Equal("Old", result.FirstName);
+        Assert.Equal("Name", result.LastName);
         _userRepo.Verify(r => r.UpdateAsync(existing), Times.Once);
         _userRepo.Verify(r => r.CreateAsync(It.IsAny<User>()), Times.Never);
     }

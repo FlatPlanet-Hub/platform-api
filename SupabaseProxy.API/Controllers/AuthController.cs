@@ -224,10 +224,10 @@ public sealed class AuthController : ControllerBase
     private async Task<(string appToken, string refreshToken)> IssueTokenPairAsync(User user)
     {
         var projects = await _userService.GetUserProjectsForTokenAsync(user.Id);
-        var systemRoles = await _userService.GetSystemRolesAsync();
         var userRoleNames = (await GetUserSystemRoleNamesAsync(user.Id)).ToList();
+        var effectivePermissions = await _userService.GetEffectivePermissionsAsync(user.Id, userRoleNames);
 
-        var appToken = _jwtService.GenerateAppToken(user, projects, userRoleNames);
+        var appToken = _jwtService.GenerateAppToken(user, projects, userRoleNames, effectivePermissions);
 
         var rawRefresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         await _refreshTokenRepo.CreateAsync(new RefreshToken
@@ -256,7 +256,8 @@ public sealed class AuthController : ControllerBase
         {
             Id = profile.Id,
             GitHubUsername = profile.GitHubUsername,
-            DisplayName = profile.DisplayName,
+            FirstName = profile.FirstName,
+            LastName = profile.LastName,
             Email = profile.Email,
             AvatarUrl = profile.AvatarUrl
         };

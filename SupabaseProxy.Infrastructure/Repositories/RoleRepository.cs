@@ -21,6 +21,13 @@ public sealed class RoleRepository : IRoleRepository
         return await conn.QueryAsync<Role>("SELECT * FROM platform.roles ORDER BY name");
     }
 
+    public async Task<Role?> GetByIdAsync(Guid id)
+    {
+        await using var conn = CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<Role>(
+            "SELECT * FROM platform.roles WHERE id = @id", new { id });
+    }
+
     public async Task<Role?> GetByNameAsync(string name)
     {
         await using var conn = CreateConnection();

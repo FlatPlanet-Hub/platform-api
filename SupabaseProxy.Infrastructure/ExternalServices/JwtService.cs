@@ -38,8 +38,8 @@ public sealed class JwtService : IJwtService
         return BuildToken(claims, DateTime.UtcNow.AddMinutes(_settings.ExpiryMinutes));
     }
 
-    // Feature 2 — short-lived app token for the frontend
-    public string GenerateAppToken(User user, IEnumerable<UserProjectSummaryDto> projects, IEnumerable<string> systemRoles)
+    // Feature 2/3 — short-lived app token for the frontend
+    public string GenerateAppToken(User user, IEnumerable<UserProjectSummaryDto> projects, IEnumerable<string> systemRoles, IEnumerable<string> effectivePermissions)
     {
         var projectsJson = JsonSerializer.Serialize(projects.Select(p => new
         {
@@ -54,8 +54,10 @@ public sealed class JwtService : IJwtService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim("github_id", user.GitHubId.ToString()),
             new Claim("github_username", user.GitHubUsername),
-            new Claim("display_name", user.DisplayName),
+            new Claim("first_name", user.FirstName ?? string.Empty),
+            new Claim("last_name", user.LastName ?? string.Empty),
             new Claim("system_roles", JsonSerializer.Serialize(systemRoles)),
+            new Claim("permissions", JsonSerializer.Serialize(effectivePermissions)),
             new Claim("projects", projectsJson),
             new Claim("token_type", TokenType.App),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())

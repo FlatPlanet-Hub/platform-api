@@ -35,6 +35,14 @@ public static class InfrastructureExtensions
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IAuditService, AuditService>();
 
+        // Feature 3 — Repositories
+        services.AddScoped<ICustomRoleRepository, CustomRoleRepository>();
+        services.AddScoped<IPermissionRepository, PermissionRepository>();
+
+        // Feature 3 — Services
+        services.AddScoped<IAdminUserService, AdminUserService>();
+        services.AddScoped<IAdminRoleService, AdminRoleService>();
+
         // GitHub OAuth HTTP client
         services.AddHttpClient<IGitHubOAuthService, GitHubOAuthService>();
 

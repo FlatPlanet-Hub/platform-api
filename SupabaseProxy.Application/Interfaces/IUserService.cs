@@ -11,4 +11,5 @@ public interface IUserService
     Task AssignSystemRoleAsync(Guid requestingUserId, RoleAssignRequest request);
     Task RevokeSystemRoleAsync(Guid requestingUserId, RoleRevokeRequest request);
     Task<IEnumerable<Domain.Entities.Role>> GetSystemRolesAsync();
+    Task<IEnumerable<string>> GetEffectivePermissionsAsync(Guid userId, IEnumerable<string> systemRoles);
 }

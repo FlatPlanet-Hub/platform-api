@@ -176,7 +176,8 @@ public sealed class ProjectService : IProjectService
             {
                 UserId = m.UserId,
                 GitHubUsername = user.GitHubUsername,
-                DisplayName = user.DisplayName,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
                 AvatarUrl = user.AvatarUrl,
                 RoleName = role.Name,
                 Permissions = role.Permissions,

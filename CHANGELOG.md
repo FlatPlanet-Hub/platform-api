@@ -6,7 +6,40 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 ---
 
 ## [Unreleased]
-> Branch: `feature/github-auth-roles` → target: `develop`
+> Branch: `feature/admin-dashboard` → target: `develop`
+
+### Added — Feature 3: User Record Creation & Role Management (Admin Dashboard)
+- `GET /api/admin/users` — paginated user list with search, isActive, roleId filters
+- `GET /api/admin/users/{id}` — single user detail (system roles + project memberships)
+- `POST /api/admin/users` — onboard user from accepted GitHub collaborator
+- `POST /api/admin/users/bulk` — bulk onboard multiple users
+- `PUT /api/admin/users/{id}` — update user details (firstName, lastName, email, isActive)
+- `PUT /api/admin/users/{id}/roles` — replace user's full role set (system + custom)
+- `PUT /api/admin/users/{id}/projects/{projectId}/role` — change user's project role
+- `DELETE /api/admin/users/{id}` — soft-deactivate + cascade revoke all tokens
+- `GET /api/admin/roles` — list all roles (system + custom)
+- `POST /api/admin/roles` — create custom role with permissions
+- `PUT /api/admin/roles/{id}` — update custom role
+- `DELETE /api/admin/roles/{id}` — deactivate custom role (system roles protected)
+- `GET /api/admin/permissions` — list all available permissions grouped by category
+- `platform.custom_roles` — admin-defined roles with permissions array
+- `platform.user_custom_roles` — assigns custom roles to users
+- `platform.permissions` — 8 seeded permissions across 4 categories (data, schema, project, admin)
+- `RequirePermissionAttribute` — JWT-claim-based permission check; `platform_admin` bypasses all
+- `AdminUserService` / `AdminRoleService` with full audit logging
+- DB migration: `db/migrations/002_admin_dashboard.sql`
+- 11 new unit tests (AdminUserService + AdminRoleService)
+
+### Changed
+- `platform.users`: dropped `display_name`; added `first_name`, `last_name`, `onboarded_by`
+- `platform.users`: `github_access_token` retained (future: Claude pushes to user's GitHub repos)
+- App JWT: added `permissions` claim (union of all custom role permissions); replaced `display_name` with `first_name` + `last_name`
+- `UpsertFromGitHubAsync`: preserves admin-set names on re-login; parses first/last from GitHub profile for new users
+
+---
+
+## [0.2.0] — merged to `develop`
+> Branch: `feature/github-auth-roles` → `develop`
 
 ### Added — Feature 2: GitHub OAuth Authentication, Roles & Access Control
 - GitHub OAuth2 login flow with CSRF protection (random `state` param in signed cookie)

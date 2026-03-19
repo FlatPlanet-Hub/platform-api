@@ -17,7 +17,8 @@ public sealed class ProjectMemberResponse
 {
     public Guid UserId { get; init; }
     public string GitHubUsername { get; init; } = string.Empty;
-    public string DisplayName { get; init; } = string.Empty;
+    public string? FirstName { get; init; }
+    public string? LastName { get; init; }
     public string? AvatarUrl { get; init; }
     public string RoleName { get; init; } = string.Empty;
     public string[] Permissions { get; init; } = [];

@@ -1,0 +1,242 @@
+# Feature 3: User Record Creation & Role Management (Admin Dashboard)
+
+## What This Is
+Admin functionality to:
+1. Create user records in Supabase from accepted GitHub collaborators (the accepted list view already exists)
+2. List all users who have been created in the database
+3. Edit user details, roles, and permissions
+
+## Architecture
+```
+Existing Accepted Collaborators View (already built)
+    ↓ Admin clicks "Onboard"
+Your API
+    ├── POST create user record in Supabase (platform.users)
+    ├── GET list all created users
+    └── PUT manage roles & permissions
+```
+
+---
+
+## DATABASE CHANGES
+
+Update `platform.users` table:
+
+```sql
+CREATE TABLE platform.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_id BIGINT UNIQUE NOT NULL,
+    github_username TEXT NOT NULL,
+    first_name TEXT,
+    last_name TEXT,
+    email TEXT,
+    avatar_url TEXT,
+    is_active BOOLEAN DEFAULT true,
+    onboarded_by UUID REFERENCES platform.users(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── CUSTOM ROLES (admin-defined) ──────────────────────
+CREATE TABLE platform.custom_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    permissions TEXT[] NOT NULL,
+    created_by UUID REFERENCES platform.users(id),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── AVAILABLE PERMISSIONS (reference table) ───────────
+CREATE TABLE platform.permissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL
+);
+
+INSERT INTO platform.permissions (name, description, category) VALUES
+    ('read', 'Query and view data', 'data'),
+    ('write', 'Insert, update, delete data', 'data'),
+    ('ddl', 'Create and alter tables', 'schema'),
+    ('manage_members', 'Invite and remove project members', 'project'),
+    ('delete_project', 'Delete or deactivate a project', 'project'),
+    ('manage_users', 'Create and edit user records', 'admin'),
+    ('manage_roles', 'Create and edit roles', 'admin'),
+    ('view_audit_log', 'View audit log entries', 'admin');
+```
+
+---
+
+## API ENDPOINTS
+
+### Users
+
+- `GET /api/admin/users` — List all users created in the database
+  
+  Query params: `?search={name or email}&isActive={true|false}&roleId={uuid}&page=1&pageSize=20`
+  
+  Response:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "users": [
+        {
+          "id": "user-uuid",
+          "githubId": 266598407,
+          "githubUsername": "Chris-Moriarty",
+          "firstName": "Chris",
+          "lastName": "Moriarty",
+          "email": "chris@example.com",
+          "avatarUrl": "https://avatars.githubusercontent.com/u/266598407?v=4",
+          "isActive": true,
+          "systemRoles": [
+            { "id": "role-uuid", "name": "user" }
+          ],
+          "projectMemberships": [
+            {
+              "projectId": "proj-uuid",
+              "projectName": "My SaaS App",
+              "projectRole": "developer",
+              "permissions": ["read", "write", "ddl"]
+            }
+          ],
+          "createdAt": "2025-03-19T..."
+        }
+      ],
+      "totalCount": 42,
+      "page": 1,
+      "pageSize": 20
+    }
+  }
+  ```
+
+- `GET /api/admin/users/{id}` — Get single user detail
+
+- `POST /api/admin/users` — Create user record from accepted collaborator
+  ```json
+  {
+    "githubId": 266598407,
+    "githubUsername": "Chris-Moriarty",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/266598407?v=4",
+    "firstName": "Chris",
+    "lastName": "Moriarty",
+    "email": "chris@example.com",
+    "roleIds": ["role-uuid-1"],
+    "projectAssignments": [
+      {
+        "projectId": "proj-uuid",
+        "projectRoleId": "proj-role-uuid"
+      }
+    ]
+  }
+  ```
+
+- `POST /api/admin/users/bulk` — Create multiple user records at once
+  ```json
+  {
+    "users": [
+      {
+        "githubId": 266598407,
+        "githubUsername": "Chris-Moriarty",
+        "firstName": "Chris",
+        "lastName": "Moriarty",
+        "email": "chris@example.com",
+        "roleIds": ["role-uuid-1"]
+      }
+    ]
+  }
+  ```
+
+- `PUT /api/admin/users/{id}` — Update user details
+  ```json
+  {
+    "firstName": "Christopher",
+    "lastName": "Moriarty",
+    "email": "chris.new@example.com",
+    "isActive": true
+  }
+  ```
+
+- `PUT /api/admin/users/{id}/roles` — Update user's system roles
+  ```json
+  {
+    "roleIds": ["role-uuid-1", "role-uuid-2"]
+  }
+  ```
+
+- `PUT /api/admin/users/{id}/projects/{projectId}/role` — Change user's project role
+  ```json
+  {
+    "projectRoleId": "proj-role-uuid"
+  }
+  ```
+
+- `DELETE /api/admin/users/{id}` — Deactivate user (soft delete)
+
+### Role Management
+
+- `GET /api/admin/roles` — List all roles (system + custom)
+
+- `POST /api/admin/roles` — Create custom role
+  ```json
+  {
+    "name": "team_lead",
+    "description": "Can read, write, and manage team members",
+    "permissions": ["read", "write", "manage_members"]
+  }
+  ```
+
+- `PUT /api/admin/roles/{id}` — Update custom role
+  ```json
+  {
+    "name": "team_lead",
+    "description": "Updated description",
+    "permissions": ["read", "write", "ddl", "manage_members"]
+  }
+  ```
+
+- `DELETE /api/admin/roles/{id}` — Deactivate custom role (system roles cannot be deleted)
+
+### Permissions
+
+- `GET /api/admin/permissions` — List all available permissions grouped by category
+  ```json
+  {
+    "success": true,
+    "data": [
+      { "id": "...", "name": "read", "description": "Query and view data", "category": "data" },
+      { "id": "...", "name": "write", "description": "Insert, update, delete data", "category": "data" },
+      { "id": "...", "name": "ddl", "description": "Create and alter tables", "category": "schema" },
+      { "id": "...", "name": "manage_members", "description": "Invite and remove project members", "category": "project" },
+      { "id": "...", "name": "manage_users", "description": "Create and edit user records", "category": "admin" },
+      { "id": "...", "name": "manage_roles", "description": "Create and edit roles", "category": "admin" },
+      { "id": "...", "name": "view_audit_log", "description": "View audit log entries", "category": "admin" }
+    ]
+  }
+  ```
+
+---
+
+## SECURITY REQUIREMENTS
+1. **Admin-only access** — All `/api/admin/*` endpoints require `platform_admin` or `manage_users`/`manage_roles` permission
+2. **Cannot edit own admin role** — Prevent admin lockout
+3. **System roles are immutable** — Cannot edit or delete `platform_admin` or `user`
+4. **Audit logging** — Log every user creation, role change, deactivation
+5. **Validation** — Email format, name length (2-100 chars), GitHub ID must be positive integer
+6. **Duplicate prevention** — Cannot create user with same `github_id` twice
+7. **Cascading deactivation** — Deactivating user revokes all their tokens
+
+---
+
+## RESPONSE FORMAT
+```json
+{
+  "success": true,
+  "data": { ... },
+  "error": null
+}
+```
