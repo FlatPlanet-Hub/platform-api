@@ -96,6 +96,26 @@ public sealed class AdminUserController : ApiControllerBase
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
+    [HttpPut("{userId:guid}/status")]
+    public async Task<ActionResult<ApiResponse<object?>>> UpdateStatus(Guid userId, [FromBody] UpdateUserStatusRequest request)
+    {
+        var adminId = GetUserId();
+        if (adminId is null) return Unauthorized();
+
+        await _adminUserService.UpdateUserStatusAsync(adminId.Value, userId, request);
+        return Ok(ApiResponse<object?>.Ok(null));
+    }
+
+    [HttpPut("{userId:guid}/role")]
+    public async Task<ActionResult<ApiResponse<object?>>> UpdateAppRole(Guid userId, [FromBody] UpdateUserAppRoleRequest request)
+    {
+        var adminId = GetUserId();
+        if (adminId is null) return Unauthorized();
+
+        await _adminUserService.UpdateUserAppRoleAsync(adminId.Value, userId, request);
+        return Ok(ApiResponse<object?>.Ok(null));
+    }
+
     [HttpDelete("{userId:guid}")]
     public async Task<ActionResult<ApiResponse<object?>>> Deactivate(Guid userId)
     {

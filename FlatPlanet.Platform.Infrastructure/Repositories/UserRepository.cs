@@ -59,6 +59,7 @@ public sealed class UserRepository : IUserRepository
                 avatar_url           = @AvatarUrl,
                 github_access_token  = @GitHubAccessToken,
                 is_active            = @IsActive,
+                status               = @Status,
                 updated_at           = @UpdatedAt
             WHERE id = @Id
             """;

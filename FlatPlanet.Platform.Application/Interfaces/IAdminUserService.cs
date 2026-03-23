@@ -12,4 +12,6 @@ public interface IAdminUserService
     Task UpdateUserRolesAsync(Guid adminId, Guid userId, UpdateUserRolesRequest request);
     Task UpdateUserProjectRoleAsync(Guid adminId, Guid userId, Guid projectId, UpdateUserProjectRoleRequest request);
     Task DeactivateUserAsync(Guid adminId, Guid userId);
+    Task UpdateUserStatusAsync(Guid adminId, Guid userId, UpdateUserStatusRequest request);
+    Task UpdateUserAppRoleAsync(Guid adminId, Guid userId, UpdateUserAppRoleRequest request);
 }

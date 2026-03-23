@@ -1,4 +1,4 @@
-# Feature 5: CLAUDE.md — Local Project Context File
+# FlatPlanet.Platform — Feature 5: CLAUDE.md — Local Project Context File
 
 ## What This Is
 A `CLAUDE.md` file that users download from your app and place in their local project folder. It gives Claude Code everything it needs to work with the project — API access, endpoints, coding rules. This file is **never pushed to GitHub** — it's gitignored and stays local.
@@ -38,11 +38,11 @@ This ensures the token never ends up in git history.
 ## Platform API
 
 Base URL: {{API_BASE_URL}}
-Token: {{CLAUDE_TOKEN}}
+Token: {{API_TOKEN}}
 Token Expires: {{TOKEN_EXPIRY_DATE}}
 
 All API requests require this header:
-Authorization: Bearer {{CLAUDE_TOKEN}}
+Authorization: Bearer {{API_TOKEN}}
 
 ### Read Schema (ALWAYS DO THIS FIRST)
 Before writing any database-related code, read the current schema.
@@ -106,6 +106,7 @@ Content-Type: application/json
 3. Use migration endpoints for CREATE/ALTER/DROP — never raw DDL in query endpoints
 4. Check the "success" field in every API response — handle errors gracefully
 5. All database access must go through the API — NEVER connect to the database directly
+6. If the token has expired, ask the user to regenerate it from the app
 
 ## Git Workflow
 1. Work on a feature branch: git checkout -b feature/{feature-name}
@@ -132,12 +133,12 @@ Content-Type: application/json
 ### Generate CLAUDE.md
 - `GET /api/projects/{projectId}/claude-config` — Generate CLAUDE.md content
 
-  Requires: user must be a member of the project
+  Requires: user must have access to the app (checked via Feature 6 `user_app_roles`)
 
   Backend logic:
-  1. Validate user has access to the project
-  2. Generate a new Claude token (30 day expiry) via JwtService
-  3. Store token record in `platform.refresh_tokens` (or a dedicated `platform.claude_tokens` table) so it can be revoked
+  1. Validate user access via Feature 6 authorization
+  2. Generate API token via Feature 6: `POST /api/auth/api-tokens` (30 day expiry, scoped to app + permissions)
+  3. Token stored in Feature 6 `api_tokens` table (hashed, revocable)
   4. Render the CLAUDE.md template with project details + token
   5. Return the content
 
@@ -157,26 +158,28 @@ Content-Type: application/json
 - `POST /api/projects/{projectId}/claude-config/regenerate` — Revoke old token, generate new CLAUDE.md
 
   Backend logic:
-  1. Revoke all existing Claude tokens for this user + project
-  2. Generate new token
+  1. Revoke existing API tokens for this user + app via Feature 6 `DELETE /api/auth/api-tokens/{tokenId}`
+  2. Generate new API token via Feature 6
   3. Return updated CLAUDE.md content
 
   Response: same as above with new token
 
 ### Revoke
-- `DELETE /api/projects/{projectId}/claude-config` — Revoke the Claude token without regenerating
+- `DELETE /api/projects/{projectId}/claude-config` — Revoke the API token without regenerating
 
 ### List Active Tokens
-- `GET /api/auth/claude-tokens` — List all active Claude tokens for current user
+- `GET /api/auth/api-tokens` — List all active API tokens for current user (Feature 6 endpoint)
   ```json
   {
     "success": true,
     "data": [
       {
         "tokenId": "token-uuid",
-        "projectId": "proj-uuid",
-        "projectName": "My SaaS App",
+        "name": "Claude token for My SaaS App",
+        "appId": "app-uuid",
+        "permissions": ["read", "write", "ddl"],
         "expiresAt": "2025-04-22T00:00:00Z",
+        "lastUsedAt": "2025-03-23T10:00:00Z",
         "createdAt": "2025-03-23T00:00:00Z"
       }
     ]
@@ -185,22 +188,9 @@ Content-Type: application/json
 
 ---
 
-## DATABASE ADDITION
+## DATABASE
 
-```sql
-CREATE TABLE platform.claude_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES platform.users(id) ON DELETE CASCADE,
-    project_id UUID NOT NULL REFERENCES platform.projects(id) ON DELETE CASCADE,
-    token_hash TEXT UNIQUE NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    revoked BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_claude_tokens_user ON platform.claude_tokens(user_id);
-CREATE INDEX idx_claude_tokens_project ON platform.claude_tokens(project_id);
-```
+No new tables — Feature 5 uses Feature 6's `api_tokens` table for token storage and management.
 
 ---
 

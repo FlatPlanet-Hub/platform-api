@@ -32,6 +32,18 @@ public sealed class ProjectScopeMiddleware
             return;
         }
 
+        const string AppTokenType = "app";
+
+        var tokenType = context.User.FindFirst("token_type")?.Value;
+
+        // App JWT tokens (frontend use) carry per-app claims in an apps[] array — no single schema
+        if (tokenType == AppTokenType)
+        {
+            await _next(context);
+            return;
+        }
+
+        // API tokens (Claude Code / service) carry schema + permissions in flat claims
         var userId = context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
                      ?? context.User.FindFirst("sub")?.Value;
         var projectId = context.User.FindFirst("project_id")?.Value;

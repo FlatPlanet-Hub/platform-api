@@ -1,4 +1,5 @@
 using FlatPlanet.Platform.Application.DTOs.Auth;
+using FlatPlanet.Platform.Application.DTOs.Iam;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
 
@@ -14,6 +15,11 @@ public sealed class UserService : IUserService
     private readonly ICustomRoleRepository _customRoleRepo;
     private readonly IAuditService _audit;
     private readonly IEncryptionService _encryption;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
+    private readonly IAppRepository _appRepo;
+    private readonly IRolePermissionRepository _rolePermRepo;
+    private readonly IUserOAuthLinkRepository _oauthLinkRepo;
+    private readonly IOAuthProviderRepository _oauthProviderRepo;
 
     public UserService(
         IUserRepository userRepo,
@@ -23,7 +29,12 @@ public sealed class UserService : IUserService
         IProjectRoleRepository roleRepoProject,
         ICustomRoleRepository customRoleRepo,
         IAuditService audit,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IUserAppRoleRepository userAppRoleRepo,
+        IAppRepository appRepo,
+        IRolePermissionRepository rolePermRepo,
+        IUserOAuthLinkRepository oauthLinkRepo,
+        IOAuthProviderRepository oauthProviderRepo)
     {
         _userRepo = userRepo;
         _roleRepo = roleRepo;
@@ -33,52 +44,64 @@ public sealed class UserService : IUserService
         _customRoleRepo = customRoleRepo;
         _audit = audit;
         _encryption = encryption;
+        _userAppRoleRepo = userAppRoleRepo;
+        _appRepo = appRepo;
+        _rolePermRepo = rolePermRepo;
+        _oauthLinkRepo = oauthLinkRepo;
+        _oauthProviderRepo = oauthProviderRepo;
     }
 
     public async Task<User> UpsertFromGitHubAsync(GitHubUserProfile profile)
     {
-        var encryptedToken = _encryption.Encrypt(profile.AccessToken);
         var existing = await _userRepo.GetByGitHubIdAsync(profile.Id);
 
+        if (existing is null)
+            throw new UnauthorizedAccessException(
+                "Your GitHub account has not been onboarded. Contact a platform admin to get access.");
+
+        // Update GitHub-owned fields; preserve admin-set first_name/last_name
+        existing.GitHubUsername = profile.Login;
+        existing.Email ??= profile.Email;
+        existing.AvatarUrl = profile.AvatarUrl;
+        existing.UpdatedAt = DateTime.UtcNow;
+        await _userRepo.UpdateAsync(existing);
+
+        // Upsert OAuth link so GitHubRepoService can retrieve the token
+        await UpsertOAuthLinkAsync(existing.Id, profile);
+
+        return existing;
+    }
+
+    private async Task UpsertOAuthLinkAsync(Guid userId, GitHubUserProfile profile)
+    {
+        var provider = await _oauthProviderRepo.GetByNameAsync("github")
+            ?? throw new InvalidOperationException(
+                "GitHub OAuth provider is not configured. Seed the oauth_providers table.");
+
+        var encryptedToken = _encryption.Encrypt(profile.AccessToken);
+        var providerUserId = profile.Id.ToString();
+
+        var existing = await _oauthLinkRepo.GetByProviderUserIdAsync(provider.Id, providerUserId);
         if (existing is not null)
         {
-            // Update GitHub-owned fields; preserve admin-set first_name/last_name
-            existing.GitHubUsername = profile.Login;
-            existing.Email ??= profile.Email;
-            existing.AvatarUrl = profile.AvatarUrl;
-            existing.GitHubAccessToken = encryptedToken;
-            existing.UpdatedAt = DateTime.UtcNow;
-            await _userRepo.UpdateAsync(existing);
-            return existing;
+            await _oauthLinkRepo.UpdateAccessTokenAsync(existing.Id, encryptedToken);
         }
-
-        // New user (not pre-onboarded): parse name from GitHub profile
-        var (firstName, lastName) = ParseName(profile.Name ?? profile.Login);
-
-        var newUser = new User
+        else
         {
-            Id = Guid.NewGuid(),
-            GitHubId = profile.Id,
-            GitHubUsername = profile.Login,
-            FirstName = firstName,
-            LastName = lastName,
-            Email = profile.Email,
-            AvatarUrl = profile.AvatarUrl,
-            GitHubAccessToken = encryptedToken,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var created = await _userRepo.CreateAsync(newUser);
-
-        var userRole = await _roleRepo.GetByNameAsync("user");
-        if (userRole is not null)
-            await _userRepo.AssignSystemRoleAsync(created.Id, userRole.Id, created.Id);
-
-        await _audit.LogAsync(created.Id, null, "user.registered", "user", new { githubUsername = profile.Login });
-
-        return created;
+            await _oauthLinkRepo.CreateAsync(new UserOAuthLink
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                ProviderId = provider.Id,
+                ProviderUserId = providerUserId,
+                ProviderUsername = profile.Login,
+                ProviderEmail = profile.Email,
+                ProviderAvatarUrl = profile.AvatarUrl,
+                AccessTokenEncrypted = encryptedToken,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
     }
 
     public async Task<UserProfileResponse> GetProfileAsync(Guid userId)
@@ -128,6 +151,45 @@ public sealed class UserService : IUserService
         return summaries;
     }
 
+    public async Task<IEnumerable<IamAppClaims>> GetIamAppClaimsAsync(Guid userId)
+    {
+        var userRoles = (await _userAppRoleRepo.GetByUserAsync(userId))
+            .Where(r => r.Status == "active" && (r.ExpiresAt is null || r.ExpiresAt > DateTime.UtcNow))
+            .ToList();
+
+        // Group by app
+        var byApp = userRoles.GroupBy(r => r.AppId);
+        var claims = new List<IamAppClaims>();
+
+        foreach (var group in byApp)
+        {
+            var app = await _appRepo.GetByIdAsync(group.Key);
+            if (app is null || app.Status != "active") continue;
+
+            var roles = new List<string>();
+            var permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ur in group)
+            {
+                var role = await _roleRepo.GetByIdAsync(ur.RoleId);
+                if (role is not null) roles.Add(role.Name);
+                var perms = await _rolePermRepo.GetPermissionNamesByRoleIdAsync(ur.RoleId);
+                foreach (var p in perms) permissions.Add(p);
+            }
+
+            claims.Add(new IamAppClaims
+            {
+                AppId = app.Id.ToString(),
+                AppSlug = app.Slug,
+                Schema = app.SchemaName,
+                Roles = roles,
+                Permissions = permissions.ToList()
+            });
+        }
+
+        return claims;
+    }
+
     public async Task AssignSystemRoleAsync(Guid requestingUserId, RoleAssignRequest request)
     {
         var requesterRoles = await _userRepo.GetSystemRolesAsync(requestingUserId);
@@ -155,6 +217,9 @@ public sealed class UserService : IUserService
         await _audit.LogAsync(requestingUserId, null, "role.revoked", "user_roles",
             new { targetUserId = request.UserId, roleName = request.RoleName });
     }
+
+    public async Task<IEnumerable<string>> GetSystemRoleNamesAsync(Guid userId) =>
+        await _userRepo.GetSystemRolesAsync(userId);
 
     public async Task<IEnumerable<Role>> GetSystemRolesAsync() =>
         await _roleRepo.GetAllAsync();

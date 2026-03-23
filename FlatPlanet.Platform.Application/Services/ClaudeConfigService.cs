@@ -2,55 +2,62 @@ using System.Text;
 using FlatPlanet.Platform.Application.DTOs.Auth;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
+using FlatPlanet.Platform.Application.Common.Helpers;
 
 namespace FlatPlanet.Platform.Application.Services;
 
 public sealed class ClaudeConfigService : IClaudeConfigService
 {
     private readonly IProjectRepository _projectRepo;
-    private readonly IProjectMemberRepository _memberRepo;
-    private readonly IProjectRoleRepository _roleRepo;
     private readonly IUserRepository _userRepo;
-    private readonly IClaudeTokenRepository _claudeTokenRepo;
+    private readonly IApiTokenRepository _apiTokenRepo;
     private readonly IJwtService _jwtService;
     private readonly IAuditService _audit;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
+    private readonly IRolePermissionRepository _rolePermRepo;
 
     public ClaudeConfigService(
         IProjectRepository projectRepo,
-        IProjectMemberRepository memberRepo,
-        IProjectRoleRepository roleRepo,
         IUserRepository userRepo,
-        IClaudeTokenRepository claudeTokenRepo,
+        IApiTokenRepository apiTokenRepo,
         IJwtService jwtService,
-        IAuditService audit)
+        IAuditService audit,
+        IUserAppRoleRepository userAppRoleRepo,
+        IRolePermissionRepository rolePermRepo)
     {
         _projectRepo = projectRepo;
-        _memberRepo = memberRepo;
-        _roleRepo = roleRepo;
         _userRepo = userRepo;
-        _claudeTokenRepo = claudeTokenRepo;
+        _apiTokenRepo = apiTokenRepo;
         _jwtService = jwtService;
         _audit = audit;
+        _userAppRoleRepo = userAppRoleRepo;
+        _rolePermRepo = rolePermRepo;
     }
 
     public async Task<ClaudeConfigResponse> GenerateAsync(Guid userId, Guid projectId, string baseUrl)
     {
         var (user, project, permissions) = await GetContextAsync(userId, projectId);
 
-        var rawToken = _jwtService.GenerateClaudeToken(user, project, permissions, out var expiresAt);
+        var rawToken = _jwtService.GenerateApiToken(
+            user, null, project.SchemaName, project.SchemaName,
+            permissions, 30, out var expiresAt);
 
-        var stored = await _claudeTokenRepo.CreateAsync(new ClaudeToken
+        var tokenHash = TokenHasher.Hash(rawToken);
+
+        var stored = await _apiTokenRepo.CreateAsync(new ApiToken
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ProjectId = projectId,
-            TokenHash = HashToken(rawToken),
+            AppId = project.AppId,   // Issue 14: scope token to the project's app
+            Name = $"Claude token for {project.Name}",
+            TokenHash = tokenHash,
+            Permissions = permissions,
             ExpiresAt = expiresAt,
             Revoked = false,
             CreatedAt = DateTime.UtcNow
         });
 
-        await _audit.LogAsync(userId, projectId, "claude_config.generated", "claude_tokens",
+        await _audit.LogAsync(userId, project.AppId, "claude_config.generated", "api_tokens",
             new { tokenId = stored.Id });
 
         return new ClaudeConfigResponse
@@ -63,53 +70,81 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     public async Task<ClaudeConfigResponse> RegenerateAsync(Guid userId, Guid projectId, string baseUrl)
     {
-        await _claudeTokenRepo.RevokeAllByUserProjectAsync(userId, projectId);
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-        await _audit.LogAsync(userId, projectId, "claude_config.revoked_all", "claude_tokens");
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
+        var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
+            await _apiTokenRepo.RevokeAsync(t.Id, "regenerated");
+
+        await _audit.LogAsync(userId, project.AppId, "claude_config.revoked_all", "api_tokens");
         return await GenerateAsync(userId, projectId, baseUrl);
     }
 
     public async Task RevokeAsync(Guid userId, Guid projectId)
     {
-        await _claudeTokenRepo.RevokeAllByUserProjectAsync(userId, projectId);
-        await _audit.LogAsync(userId, projectId, "claude_config.revoked", "claude_tokens");
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
+
+        var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
+            await _apiTokenRepo.RevokeAsync(t.Id, "revoked");
+
+        await _audit.LogAsync(userId, project.AppId, "claude_config.revoked", "api_tokens");
     }
 
     public async Task<IEnumerable<ClaudeTokenSummaryDto>> ListActiveTokensAsync(Guid userId)
     {
-        var tokens = await _claudeTokenRepo.GetActiveByUserIdAsync(userId);
-        var summaries = new List<ClaudeTokenSummaryDto>();
-
-        foreach (var token in tokens)
+        var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
+        return tokens.Select(t => new ClaudeTokenSummaryDto
         {
-            var project = await _projectRepo.GetByIdAsync(token.ProjectId);
-            summaries.Add(new ClaudeTokenSummaryDto
-            {
-                TokenId = token.Id,
-                ProjectId = token.ProjectId,
-                ProjectName = project?.Name ?? string.Empty,
-                ExpiresAt = token.ExpiresAt,
-                CreatedAt = token.CreatedAt
-            });
-        }
-
-        return summaries;
+            TokenId = t.Id,
+            ProjectId = Guid.Empty,
+            ProjectName = t.Name,
+            ExpiresAt = t.ExpiresAt,
+            CreatedAt = t.CreatedAt
+        });
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private async Task<(User user, Project project, string[] permissions)> GetContextAsync(
-        Guid userId, Guid projectId)
+    // Issue 15: replaced project_members/project_roles with user_app_roles/role_permissions
+    private async Task<(User user, Project project, string[] permissions)> GetContextAsync(Guid userId, Guid projectId)
     {
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-        var member = await _memberRepo.GetAsync(projectId, userId)
-            ?? throw new UnauthorizedAccessException("You are not a member of this project.");
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
-        var role = await _roleRepo.GetByIdAsync(projectId, member.ProjectRoleId);
-        var permissions = role?.Permissions ?? [];
+        string[] permissions;
+        if (project.OwnerId == userId)
+        {
+            permissions = ["read", "write", "ddl", "manage_members"];
+        }
+        else
+        {
+            var userRoles = (await _userAppRoleRepo.GetByUserAndAppAsync(userId, project.AppId.Value))
+                .Where(r => r.Status == "active" && (r.ExpiresAt is null || r.ExpiresAt > DateTime.UtcNow))
+                .ToList();
+
+            if (userRoles.Count == 0)
+                throw new UnauthorizedAccessException("You do not have access to this project.");
+
+            var allPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ur in userRoles)
+            {
+                var perms = await _rolePermRepo.GetPermissionNamesByRoleIdAsync(ur.RoleId);
+                foreach (var p in perms) allPermissions.Add(p);
+            }
+            permissions = allPermissions.ToArray();
+        }
 
         var user = await _userRepo.GetByIdAsync(userId)
             ?? throw new KeyNotFoundException($"User {userId} not found.");
@@ -117,13 +152,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         return (user, project, permissions);
     }
 
-    private static string HashToken(string rawToken)
-    {
-        var bytes = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(rawToken));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
-
+    // Issue 13: corrected API paths — project context comes from JWT, not the URL
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl)
     {
         var sb = new StringBuilder();
@@ -145,81 +174,26 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine($"Authorization: Bearer {token}");
         sb.AppendLine();
         sb.AppendLine("### Read Schema (ALWAYS DO THIS FIRST)");
-        sb.AppendLine("Before writing any database-related code, read the current schema.");
-        sb.AppendLine();
-        sb.AppendLine($"GET {baseUrl}/api/projects/{project.Id}/schema/full");
+        sb.AppendLine($"GET {baseUrl}/api/schema/full");
         sb.AppendLine();
         sb.AppendLine("### Create Table");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/migration/create-table");
-        sb.AppendLine("Content-Type: application/json");
-        sb.AppendLine();
-        sb.AppendLine("""
-            {
-              "tableName": "table_name",
-              "columns": [
-                { "name": "id", "type": "uuid", "isPrimaryKey": true, "default": "gen_random_uuid()" },
-                { "name": "name", "type": "text", "nullable": false },
-                { "name": "created_at", "type": "timestamptz", "default": "now()" }
-              ],
-              "enableRls": true
-            }
-            """);
-        sb.AppendLine("### Alter Table");
-        sb.AppendLine($"PUT {baseUrl}/api/projects/{project.Id}/migration/alter-table");
-        sb.AppendLine("Content-Type: application/json");
-        sb.AppendLine();
-        sb.AppendLine("""
-            {
-              "tableName": "table_name",
-              "actions": [
-                { "action": "add", "columnName": "new_col", "type": "text" },
-                { "action": "drop", "columnName": "old_col" },
-                { "action": "rename", "columnName": "old_name", "newName": "new_name" },
-                { "action": "alter_type", "columnName": "col", "type": "integer" }
-              ]
-            }
-            """);
-        sb.AppendLine("### Drop Table");
-        sb.AppendLine($"DELETE {baseUrl}/api/projects/{project.Id}/migration/drop-table?table={{name}}");
+        sb.AppendLine($"POST {baseUrl}/api/migration/create-table");
         sb.AppendLine();
         sb.AppendLine("### Read Query");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/query/read");
-        sb.AppendLine("Content-Type: application/json");
+        sb.AppendLine($"POST {baseUrl}/api/query/read");
         sb.AppendLine();
-        sb.AppendLine("""
-            {
-              "sql": "SELECT * FROM table_name WHERE column = @param LIMIT @limit",
-              "parameters": { "param": "value", "limit": 50 }
-            }
-            """);
         sb.AppendLine("### Write Query");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/query/write");
-        sb.AppendLine("Content-Type: application/json");
+        sb.AppendLine($"POST {baseUrl}/api/query/write");
         sb.AppendLine();
-        sb.AppendLine("""
-            {
-              "sql": "INSERT INTO table_name (col1, col2) VALUES (@val1, @val2)",
-              "parameters": { "val1": "hello", "val2": "world" }
-            }
-            """);
         sb.AppendLine("## Rules");
         sb.AppendLine("1. ALWAYS read the schema first before writing any database code");
-        sb.AppendLine("2. ALWAYS use parameterized queries — use @paramName syntax, NEVER concatenate values into SQL");
+        sb.AppendLine("2. ALWAYS use parameterized queries — NEVER concatenate values into SQL");
         sb.AppendLine("3. Use migration endpoints for CREATE/ALTER/DROP — never raw DDL in query endpoints");
-        sb.AppendLine("4. Check the \"success\" field in every API response — handle errors gracefully");
-        sb.AppendLine("5. All database access must go through the API — NEVER connect to the database directly");
-        sb.AppendLine();
-        sb.AppendLine("## Git Workflow");
-        sb.AppendLine("1. Work on a feature branch: git checkout -b feature/{feature-name}");
-        sb.AppendLine("2. Build and test locally before committing");
-        sb.AppendLine("3. Commit with descriptive messages: feat:, fix:, refactor:, docs:");
-        sb.AppendLine("4. Push: git push origin feature/{feature-name}");
-        sb.AppendLine("5. For major features, create a PR to main");
+        sb.AppendLine("4. All database access must go through the API — NEVER connect to the database directly");
         sb.AppendLine();
         sb.AppendLine("## IMPORTANT");
         sb.AppendLine("- This file is LOCAL ONLY — do not commit or push this file");
-        sb.AppendLine("- If the token has expired, ask the user to regenerate it from the app");
-
+        sb.AppendLine("- If the token has expired, regenerate it from the app");
         return sb.ToString();
     }
 }

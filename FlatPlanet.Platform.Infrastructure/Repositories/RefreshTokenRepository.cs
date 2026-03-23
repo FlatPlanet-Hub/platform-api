@@ -14,8 +14,8 @@ public sealed class RefreshTokenRepository : IRefreshTokenRepository
     {
         await using var conn = _db.CreateConnection();
         const string sql = """
-            INSERT INTO platform.refresh_tokens (id, user_id, token_hash, expires_at, revoked, created_at)
-            VALUES (@Id, @UserId, @TokenHash, @ExpiresAt, @Revoked, @CreatedAt)
+            INSERT INTO platform.refresh_tokens (id, user_id, session_id, token_hash, expires_at, revoked, created_at)
+            VALUES (@Id, @UserId, @SessionId, @TokenHash, @ExpiresAt, @Revoked, @CreatedAt)
             RETURNING *
             """;
         return await conn.QuerySingleAsync<RefreshToken>(sql, token);

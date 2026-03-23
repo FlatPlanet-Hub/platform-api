@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Dapper;
 using FlatPlanet.Platform.Application.DTOs;
 using FlatPlanet.Platform.Application.Interfaces;
@@ -18,6 +19,18 @@ public sealed class DbProxyService : IDbProxyService
         "date", "time", "timetz", "timestamp", "timestamptz",
         "jsonb", "json", "bytea", "serial", "bigserial"
     };
+
+    // Whitelisted DEFAULT expressions that are safe to embed in SQL directly.
+    private static readonly HashSet<string> AllowedDefaultKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "now()", "current_timestamp", "current_date", "current_time",
+        "gen_random_uuid()", "uuid_generate_v4()",
+        "true", "false", "null"
+    };
+
+    // Matches plain numeric literals: 42, 3.14, -1, -0.5
+    private static readonly Regex NumericLiteralRegex =
+        new(@"^-?\d+(\.\d+)?$", RegexOptions.Compiled);
 
     public DbProxyService(IDbConnectionFactory db) => _db = db;
 
@@ -183,6 +196,11 @@ public sealed class DbProxyService : IDbProxyService
 
     private static string BuildColumnSql(ColumnDefinition col)
     {
+        // Validate column type against whitelist (handles parameterised types like varchar(255))
+        var baseType = col.Type.Split('(', 2)[0].Trim();
+        if (!AllowedColumnTypes.Contains(baseType))
+            throw new ArgumentException($"Column type '{col.Type}' is not allowed.");
+
         var sb = new StringBuilder();
         sb.Append($"{QuoteIdentifier(col.Name)} {col.Type}");
 
@@ -193,9 +211,40 @@ public sealed class DbProxyService : IDbProxyService
             sb.Append(" NOT NULL");
 
         if (col.Default is not null)
+        {
+            if (!IsAllowedDefault(col.Default))
+                throw new ArgumentException(
+                    $"Default value '{col.Default}' is not allowed. " +
+                    "Use a whitelisted SQL function (e.g. now(), gen_random_uuid()), " +
+                    "a numeric literal, a boolean, null, or a simple quoted string.");
             sb.Append($" DEFAULT {col.Default}");
+        }
 
         return sb.ToString();
+    }
+
+    private static bool IsAllowedDefault(string value)
+    {
+        var trimmed = value.Trim();
+
+        if (AllowedDefaultKeywords.Contains(trimmed))
+            return true;
+
+        if (NumericLiteralRegex.IsMatch(trimmed))
+            return true;
+
+        // Simple single-quoted string literal: 'active', 'pending', etc.
+        // Inner value must not contain quotes, semicolons, or SQL comment markers.
+        if (trimmed.StartsWith('\'') && trimmed.EndsWith('\'') && trimmed.Length >= 2)
+        {
+            var inner = trimmed[1..^1];
+            return !inner.Contains('\'')
+                && !inner.Contains(';')
+                && !inner.Contains("--")
+                && !inner.Contains("/*");
+        }
+
+        return false;
     }
 
     private static IEnumerable<string> BuildAlterTableSql(string schema, AlterTableRequest request)

@@ -16,29 +16,26 @@ public sealed class UserServiceTests
     private readonly Mock<ICustomRoleRepository> _customRoleRepo = new();
     private readonly Mock<IAuditService> _audit = new();
     private readonly Mock<IEncryptionService> _encryption = new();
+    private readonly Mock<IUserAppRoleRepository> _userAppRoleRepo = new();
+    private readonly Mock<IAppRepository> _appRepo = new();
+    private readonly Mock<IRolePermissionRepository> _rolePermRepo = new();
+    private readonly Mock<IUserOAuthLinkRepository> _oauthLinkRepo = new();
+    private readonly Mock<IOAuthProviderRepository> _oauthProviderRepo = new();
 
     private UserService CreateSut() =>
-        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _memberRepo.Object, _roleRepoProject.Object, _customRoleRepo.Object, _audit.Object, _encryption.Object);
+        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _memberRepo.Object, _roleRepoProject.Object, _customRoleRepo.Object, _audit.Object, _encryption.Object, _userAppRoleRepo.Object, _appRepo.Object, _rolePermRepo.Object, _oauthLinkRepo.Object, _oauthProviderRepo.Object);
 
     [Fact]
-    public async Task UpsertFromGitHub_ShouldCreateUser_WhenUserDoesNotExist()
+    public async Task UpsertFromGitHub_ShouldThrow_WhenUserNotOnboarded()
     {
         var profile = new GitHubUserProfile { Id = 12345, Login = "johndoe", Name = "John Doe", AccessToken = "ghp_token" };
-        var userRole = new Role { Id = Guid.NewGuid(), Name = "user" };
 
         _userRepo.Setup(r => r.GetByGitHubIdAsync(profile.Id)).ReturnsAsync((User?)null);
-        _userRepo.Setup(r => r.CreateAsync(It.IsAny<User>())).ReturnsAsync((User u) => u);
-        _roleRepo.Setup(r => r.GetByNameAsync("user")).ReturnsAsync(userRole);
 
         var sut = CreateSut();
-        var result = await sut.UpsertFromGitHubAsync(profile);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => sut.UpsertFromGitHubAsync(profile));
 
-        Assert.Equal(profile.Login, result.GitHubUsername);
-        Assert.Equal(profile.Id, result.GitHubId);
-        Assert.Equal("John", result.FirstName);
-        Assert.Equal("Doe", result.LastName);
-        _userRepo.Verify(r => r.CreateAsync(It.IsAny<User>()), Times.Once);
-        _userRepo.Verify(r => r.AssignSystemRoleAsync(result.Id, userRole.Id, result.Id), Times.Once);
+        _userRepo.Verify(r => r.CreateAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
@@ -46,9 +43,14 @@ public sealed class UserServiceTests
     {
         var existing = new User { Id = Guid.NewGuid(), GitHubId = 12345, GitHubUsername = "old", FirstName = "Old", LastName = "Name", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
         var profile = new GitHubUserProfile { Id = 12345, Login = "johndoe", Name = "John Doe", AccessToken = "ghp_token" };
+        var provider = new OAuthProvider { Id = Guid.NewGuid(), Name = "github" };
 
         _userRepo.Setup(r => r.GetByGitHubIdAsync(profile.Id)).ReturnsAsync(existing);
         _userRepo.Setup(r => r.UpdateAsync(It.IsAny<User>())).Returns(Task.CompletedTask);
+        _oauthProviderRepo.Setup(r => r.GetByNameAsync("github")).ReturnsAsync(provider);
+        _oauthLinkRepo.Setup(r => r.GetByProviderUserIdAsync(provider.Id, profile.Id.ToString())).ReturnsAsync((UserOAuthLink?)null);
+        _oauthLinkRepo.Setup(r => r.CreateAsync(It.IsAny<UserOAuthLink>())).ReturnsAsync((UserOAuthLink l) => l);
+        _encryption.Setup(e => e.Encrypt(profile.AccessToken)).Returns("encrypted_token");
 
         var sut = CreateSut();
         var result = await sut.UpsertFromGitHubAsync(profile);
@@ -59,6 +61,7 @@ public sealed class UserServiceTests
         Assert.Equal("Name", result.LastName);
         _userRepo.Verify(r => r.UpdateAsync(existing), Times.Once);
         _userRepo.Verify(r => r.CreateAsync(It.IsAny<User>()), Times.Never);
+        _oauthLinkRepo.Verify(r => r.CreateAsync(It.IsAny<UserOAuthLink>()), Times.Once);
     }
 
     [Fact]

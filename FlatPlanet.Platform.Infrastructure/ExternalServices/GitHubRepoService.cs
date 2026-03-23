@@ -1,11 +1,11 @@
 using System.Text;
-using Microsoft.Extensions.Options;
 using Octokit;
 using FlatPlanet.Platform.Application.DTOs;
 using FlatPlanet.Platform.Application.DTOs.Repo;
 using FlatPlanet.Platform.Application.Interfaces;
-using FlatPlanet.Platform.Infrastructure.Common.Helpers;
-using FlatPlanet.Platform.Infrastructure.Configuration;
+using FlatPlanet.Platform.Domain.Entities;
+// Disambiguate our domain Project from Octokit.Project
+using DomainProject = FlatPlanet.Platform.Domain.Entities.Project;
 // Alias app DTOs that clash with Octokit type names
 using AppTreeResponse = FlatPlanet.Platform.Application.DTOs.Repo.TreeResponse;
 using AppDeleteFileRequest = FlatPlanet.Platform.Application.DTOs.Repo.DeleteFileRequest;
@@ -19,20 +19,32 @@ public sealed class GitHubRepoService : IGitHubRepoService
     private readonly IProjectRepository _projectRepo;
     private readonly IAuditService _audit;
     private readonly IDbProxyService _dbProxy;
-    private readonly EncryptionSettings _encryption;
+    private readonly IEncryptionService _encryption;
+    private readonly IUserOAuthLinkRepository _oauthLinkRepo;
+    private readonly IOAuthProviderRepository _oauthProviderRepo;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
+    private readonly IRolePermissionRepository _rolePermRepo;
 
     public GitHubRepoService(
         IUserRepository userRepo,
         IProjectRepository projectRepo,
         IAuditService audit,
         IDbProxyService dbProxy,
-        IOptions<EncryptionSettings> encryption)
+        IEncryptionService encryption,
+        IUserOAuthLinkRepository oauthLinkRepo,
+        IOAuthProviderRepository oauthProviderRepo,
+        IUserAppRoleRepository userAppRoleRepo,
+        IRolePermissionRepository rolePermRepo)
     {
         _userRepo = userRepo;
         _projectRepo = projectRepo;
         _audit = audit;
         _dbProxy = dbProxy;
-        _encryption = encryption.Value;
+        _encryption = encryption;
+        _oauthLinkRepo = oauthLinkRepo;
+        _oauthProviderRepo = oauthProviderRepo;
+        _userAppRoleRepo = userAppRoleRepo;
+        _rolePermRepo = rolePermRepo;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -43,10 +55,16 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var user = await _userRepo.GetByIdAsync(userId)
             ?? throw new InvalidOperationException("User not found.");
 
-        if (string.IsNullOrWhiteSpace(user.GitHubAccessToken))
+        var provider = await _oauthProviderRepo.GetByNameAsync("github")
+            ?? throw new InvalidOperationException("GitHub OAuth provider is not configured.");
+
+        var oauthLink = await _oauthLinkRepo.GetByProviderUserIdAsync(
+            provider.Id, user.GitHubId.ToString());
+
+        if (oauthLink?.AccessTokenEncrypted is null)
             throw new InvalidOperationException("No GitHub access token on file. Please re-authenticate.");
 
-        var token = EncryptionHelper.Decrypt(user.GitHubAccessToken, _encryption.Key);
+        var token = _encryption.Decrypt(oauthLink.AccessTokenEncrypted);
         var client = new GitHubClient(new ProductHeaderValue("FlatPlanetHub"))
         {
             Credentials = new Credentials(token)
@@ -62,8 +80,11 @@ public sealed class GitHubRepoService : IGitHubRepoService
             throw new InvalidOperationException("No GitHub repository linked to this project.");
 
         var parts = project.GitHubRepo.Split('/', 2);
-        if (parts.Length != 2)
-            throw new InvalidOperationException("Invalid github_repo format stored on project.");
+        if (parts.Length != 2
+            || string.IsNullOrWhiteSpace(parts[0])
+            || string.IsNullOrWhiteSpace(parts[1]))
+            throw new InvalidOperationException(
+                $"Invalid github_repo format '{project.GitHubRepo}'. Expected 'owner/repo'.");
 
         return (client, parts[0], parts[1]);
     }
@@ -72,8 +93,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<RepoResponse> CreateRepoAsync(Guid userId, Guid projectId, CreateRepoRequest request)
     {
-        var project = await _projectRepo.GetByIdAsync(projectId)
-            ?? throw new InvalidOperationException("Project not found.");
+        var project = await GetProjectAndCheckAsync(userId, projectId, "ddl");
 
         if (!string.IsNullOrWhiteSpace(project.GitHubRepo))
             throw new InvalidOperationException("A GitHub repository is already linked to this project.");
@@ -123,6 +143,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<RepoResponse> GetRepoAsync(Guid userId, Guid projectId)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
         var repo = await client.Repository.Get(owner, repoName);
         return new RepoResponse(repo.FullName, repo.HtmlUrl, repo.CloneUrl, repo.DefaultBranch ?? "main");
@@ -130,8 +151,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task DeleteRepoAsync(Guid userId, Guid projectId)
     {
-        var project = await _projectRepo.GetByIdAsync(projectId)
-            ?? throw new InvalidOperationException("Project not found.");
+        var project = await GetProjectAndCheckAsync(userId, projectId, "ddl");
 
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
@@ -149,6 +169,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<object> GetFilesAsync(Guid userId, Guid projectId, string? path, string? branch)
     {
+        ValidateFilePath(path);
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var effectivePath = string.IsNullOrWhiteSpace(path) ? string.Empty : path;
@@ -176,6 +198,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<AppTreeResponse> GetTreeAsync(Guid userId, Guid projectId, string? branch)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var repoInfo = await client.Repository.Get(owner, repoName);
@@ -193,6 +216,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<FileContentDto> UpsertFileAsync(Guid userId, Guid projectId, UpsertFileRequest request)
     {
+        ValidateFilePath(request.Path);
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         RepositoryContentChangeSet result;
@@ -216,6 +241,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task DeleteFileAsync(Guid userId, Guid projectId, AppDeleteFileRequest request)
     {
+        ValidateFilePath(request.Path);
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         await client.Repository.Content.DeleteFile(owner, repoName,
@@ -232,6 +259,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
         const long maxFileSizeBytes = 50L * 1024 * 1024; // 50 MB
 
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         // 1. Get current HEAD
@@ -299,6 +327,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<IEnumerable<CommitSummaryDto>> ListCommitsAsync(
         Guid userId, Guid projectId, string? branch, int page, int pageSize)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var commitRequest = new CommitRequest();
@@ -318,6 +347,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<IEnumerable<BranchDto>> ListBranchesAsync(Guid userId, Guid projectId)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
         var repoInfo = await client.Repository.Get(owner, repoName);
         var branches = await client.Repository.Branch.GetAll(owner, repoName);
@@ -330,6 +360,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<BranchDto> CreateBranchAsync(Guid userId, Guid projectId, CreateBranchRequest request)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "ddl");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var fromRef = await client.Git.Reference.Get(owner, repoName, $"heads/{request.FromBranch}");
@@ -341,6 +372,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task DeleteBranchAsync(Guid userId, Guid projectId, string branchName)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "ddl");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var repoInfo = await client.Repository.Get(owner, repoName);
@@ -355,6 +387,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<PullRequestDto> CreatePullRequestAsync(
         Guid userId, Guid projectId, CreatePullRequestRequest request)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var pr = await client.PullRequest.Create(owner, repoName,
@@ -369,6 +402,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<IEnumerable<PullRequestDto>> ListPullRequestsAsync(
         Guid userId, Guid projectId, string? state)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var itemState = state?.ToLowerInvariant() switch
@@ -386,6 +420,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<PullRequestDto> GetPullRequestAsync(Guid userId, Guid projectId, int prNumber)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "read");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
         try
         {
@@ -401,6 +436,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<MergeResultDto> MergePullRequestAsync(
         Guid userId, Guid projectId, int prNumber, MergePullRequestRequest request)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var mergeMethod = request.MergeMethod.ToLowerInvariant() switch
@@ -423,6 +459,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<IEnumerable<CollaboratorDto>> ListCollaboratorsAsync(Guid userId, Guid projectId)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "manage_members");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
         var collabs = await client.Repository.Collaborator.GetAll(owner, repoName);
 
@@ -436,6 +473,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task InviteCollaboratorAsync(
         Guid userId, Guid projectId, InviteCollaboratorRequest request)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "manage_members");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         // CollaboratorRequest takes a string permission in Octokit v14
@@ -455,6 +493,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task RemoveCollaboratorAsync(Guid userId, Guid projectId, string githubUsername)
     {
+        await GetProjectAndCheckAsync(userId, projectId, "manage_members");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
         await client.Repository.Collaborator.Delete(owner, repoName, githubUsername);
 
@@ -469,6 +508,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var project = await _projectRepo.GetByIdAsync(projectId);
         if (project is null || string.IsNullOrWhiteSpace(project.GitHubRepo))
             return; // No repo linked — skip silently
+
+        await CheckPermissionAsync(userId, project, "write");
 
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
@@ -520,7 +561,64 @@ public sealed class GitHubRepoService : IGitHubRepoService
         }
     }
 
+    // ── Permission helpers ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Checks that the user has <paramref name="requiredPermission"/> on the project's app.
+    /// Falls back to owner check when the project has no AppId (pre-IAM projects).
+    /// </summary>
+    private async Task CheckPermissionAsync(Guid userId, DomainProject project, string requiredPermission)
+    {
+        // Owner always has full access
+        if (project.OwnerId == userId) return;
+
+        if (project.AppId is null)
+            throw new UnauthorizedAccessException(
+                $"You do not have '{requiredPermission}' access to this project.");
+
+        var userRoles = (await _userAppRoleRepo.GetByUserAndAppAsync(userId, project.AppId.Value))
+            .Where(r => r.Status == "active" && (r.ExpiresAt is null || r.ExpiresAt > DateTime.UtcNow))
+            .ToList();
+
+        if (userRoles.Count == 0)
+            throw new UnauthorizedAccessException(
+                "You do not have access to this project.");
+
+        foreach (var ur in userRoles)
+        {
+            var perms = await _rolePermRepo.GetPermissionNamesByRoleIdAsync(ur.RoleId);
+            if (perms.Contains(requiredPermission, StringComparer.OrdinalIgnoreCase))
+                return;
+        }
+
+        throw new UnauthorizedAccessException(
+            $"You do not have '{requiredPermission}' permission on this project.");
+    }
+
+    private async Task<DomainProject> GetProjectAndCheckAsync(Guid userId, Guid projectId, string requiredPermission)
+    {
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new InvalidOperationException("Project not found.");
+        await CheckPermissionAsync(userId, project, requiredPermission);
+        return project;
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    private static void ValidateFilePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return; // empty = repo root, allowed
+
+        var normalized = path.Replace('\\', '/');
+        if (normalized.StartsWith('/'))
+            throw new ArgumentException($"File path must not start with '/': '{path}'");
+
+        foreach (var segment in normalized.Split('/'))
+        {
+            if (segment == ".." || segment == ".")
+                throw new ArgumentException($"File path must not contain '.' or '..' segments: '{path}'");
+        }
+    }
 
     private static async Task SeedInitialFilesAsync(
         GitHubClient client, string owner, string repoName,
