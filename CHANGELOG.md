@@ -5,8 +5,23 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
-## [Unreleased]
-> Branch: `feature/github-repo-operations` → target: `develop`
+## [0.5.0] — 2026-03-23
+> Branch: `feature/github-repo-operations`
+
+### Changed — Project Rename & Architecture Refactor
+- **Renamed** entire solution from `SupabaseProxy` → `FlatPlanet.Platform` (Company.Product .NET convention)
+  - 5 project folders, 5 .csproj files, solution file, 112 C# files (namespaces + usings)
+  - OpenAPI title updated to "FlatPlanet Platform API"
+  - README updated to reflect platform identity
+- **Moved services to Application layer** — `AdminRoleService`, `AdminUserService`, `UserService`, `ProjectService` relocated from Infrastructure to Application (clean architecture compliance)
+- **Split fat repositories** — `IProjectRepository` split into `IProjectRepository`, `IProjectRoleRepository`, `IProjectMemberRepository` (Interface Segregation Principle)
+- **Split ProjectService** — extracted `ProjectRoleService` and `ProjectMemberService` (Single Responsibility)
+- **Added `IDbConnectionFactory`** — centralized DB connection creation, injected into all repositories
+- **Added `IEncryptionService`** — abstracted encryption behind an Application-layer interface
+- **Added `ApiControllerBase`** — extracted `GetUserId()` into shared base controller
+- **Added `GlobalExceptionMiddleware`** — centralized error handling with structured logging
+- **Added Feature 5: Claude Config** — `ClaudeConfigService`, `ClaudeConfigController`, `IClaudeConfigService`
+- 76 unit tests passing (7 new)
 
 ---
 

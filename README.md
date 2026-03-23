@@ -1,9 +1,9 @@
-# SupabaseProxy API
+# FlatPlanet Platform API
 
-A secure .NET 10 Web API that acts as an authenticated proxy between **Claude Desktop (via MCP)** and **Supabase Postgres**. Users never receive direct database credentials — they authenticate with scoped JWT tokens and the API enforces per-schema access control.
+A secure .NET 10 Web API that serves as the backend platform for **FlatPlanet Hub**. Provides authenticated access to Supabase Postgres, GitHub repository management, role-based access control, and Claude Code integration — all through scoped JWT tokens with per-schema isolation.
 
 ```
-Claude Desktop → MCP Server → SupabaseProxy API (JWT auth) → Supabase Postgres
+Frontend / Claude Code → FlatPlanet Platform API (JWT auth) → Supabase Postgres / GitHub
 ```
 
 ---
@@ -13,11 +13,11 @@ Claude Desktop → MCP Server → SupabaseProxy API (JWT auth) → Supabase Post
 Clean Architecture with a modular monolith layout:
 
 ```
-SupabaseProxy.API           → Controllers, Middleware, Program.cs
-SupabaseProxy.Application   → Interfaces, DTOs, Validation helpers
-SupabaseProxy.Domain        → Entities, Value objects
-SupabaseProxy.Infrastructure → DbProxyService (Npgsql + Dapper), JwtService
-SupabaseProxy.Tests         → xUnit unit tests
+FlatPlanet.Platform.API           → Controllers, Middleware, Program.cs
+FlatPlanet.Platform.Application   → Interfaces, DTOs, Validation helpers
+FlatPlanet.Platform.Domain        → Entities, Value objects
+FlatPlanet.Platform.Infrastructure → DbProxyService (Npgsql + Dapper), JwtService
+FlatPlanet.Platform.Tests         → xUnit unit tests
 ```
 
 Each user/project is isolated to their own Postgres schema (e.g. `project_abc123`). The JWT token carries the allowed schema, project ID, and permissions. Every query is scoped server-side before hitting the database.
@@ -45,7 +45,7 @@ Each user/project is isolated to their own Postgres schema (e.g. `project_abc123
 
 ### Configuration
 
-Edit `SupabaseProxy.API/appsettings.json`:
+Edit `FlatPlanet.Platform.API/appsettings.json`:
 
 ```json
 {
@@ -74,7 +74,7 @@ Edit `SupabaseProxy.API/appsettings.json`:
 
 ```bash
 dotnet restore
-dotnet run --project SupabaseProxy.API
+dotnet run --project FlatPlanet.Platform.API
 ```
 
 API docs available at `https://localhost:{port}/scalar/v1` (development only).
@@ -241,7 +241,7 @@ All endpoints return the same envelope:
 ## Running Tests
 
 ```bash
-dotnet test SupabaseProxy.Tests
+dotnet test FlatPlanet.Platform.Tests
 ```
 
 47 unit tests covering schema name validation, identifier validation, read query blocking, and write query blocking.
