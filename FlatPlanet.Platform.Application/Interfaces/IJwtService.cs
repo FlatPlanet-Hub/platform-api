@@ -1,17 +1,17 @@
 using FlatPlanet.Platform.Application.DTOs;
-using FlatPlanet.Platform.Application.DTOs.Auth;
+using FlatPlanet.Platform.Application.DTOs.Iam;
 using FlatPlanet.Platform.Domain.Entities;
 
 namespace FlatPlanet.Platform.Application.Interfaces;
 
 public interface IJwtService
 {
-    // Feature 1 — scoped proxy token
+    // Feature 1 — scoped proxy token (direct DB access)
     string GenerateToken(GenerateTokenRequest request);
 
-    // Feature 2/3 — app token (frontend); permissions = union of all effective permissions
-    string GenerateAppToken(User user, IEnumerable<UserProjectSummaryDto> projects, IEnumerable<string> systemRoles, IEnumerable<string> effectivePermissions);
+    // Feature 6 — short-lived app JWT with apps[] claims
+    string GenerateAppToken(User user, IEnumerable<IamAppClaims> apps);
 
-    // Feature 2 — long-lived Claude Desktop token
-    string GenerateClaudeToken(User user, Project project, string[] permissions, out DateTime expiresAt);
+    // Feature 6 — long-lived API token (Claude Code, CI/CD, integrations)
+    string GenerateApiToken(User user, Guid? appId, string appSlug, string? schema, string[] permissions, int expiryDays, out DateTime expiresAt);
 }

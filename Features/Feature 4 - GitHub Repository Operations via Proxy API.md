@@ -1,4 +1,4 @@
-# Feature 4: GitHub Repository Operations via Proxy API
+# FlatPlanet.Platform — Feature 4: GitHub Repository Operations via Proxy API
 
 ## What This Is
 API endpoints that let Claude (via MCP) perform GitHub operations through your proxy API. The API uses the authenticated user's stored GitHub access token (from OAuth login in Feature 2) to make GitHub API calls server-side. Users never pass GitHub tokens to Claude directly.
@@ -15,7 +15,7 @@ Claude Desktop → MCP → Your API (JWT auth)
 The user's GitHub token is stored encrypted in `platform.users.github_access_token` (set during OAuth login in Feature 2). The API decrypts it server-side for each GitHub operation.
 
 ## Tech Stack
-- .NET 10 Web API
+- .NET 8 Web API
 - Octokit.net (GitHub API client for .NET) or HttpClient with GitHub REST API
 - AES-256 encryption for stored tokens
 

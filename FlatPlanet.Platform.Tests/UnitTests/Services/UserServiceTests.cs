@@ -16,9 +16,12 @@ public sealed class UserServiceTests
     private readonly Mock<ICustomRoleRepository> _customRoleRepo = new();
     private readonly Mock<IAuditService> _audit = new();
     private readonly Mock<IEncryptionService> _encryption = new();
+    private readonly Mock<IUserAppRoleRepository> _userAppRoleRepo = new();
+    private readonly Mock<IAppRepository> _appRepo = new();
+    private readonly Mock<IRolePermissionRepository> _rolePermRepo = new();
 
     private UserService CreateSut() =>
-        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _memberRepo.Object, _roleRepoProject.Object, _customRoleRepo.Object, _audit.Object, _encryption.Object);
+        new(_userRepo.Object, _roleRepo.Object, _projectRepo.Object, _memberRepo.Object, _roleRepoProject.Object, _customRoleRepo.Object, _audit.Object, _encryption.Object, _userAppRoleRepo.Object, _appRepo.Object, _rolePermRepo.Object);
 
     [Fact]
     public async Task UpsertFromGitHub_ShouldCreateUser_WhenUserDoesNotExist()

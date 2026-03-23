@@ -1,4 +1,5 @@
 using FlatPlanet.Platform.Application.DTOs.Auth;
+using FlatPlanet.Platform.Application.DTOs.Iam;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
 
@@ -14,6 +15,9 @@ public sealed class UserService : IUserService
     private readonly ICustomRoleRepository _customRoleRepo;
     private readonly IAuditService _audit;
     private readonly IEncryptionService _encryption;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
+    private readonly IAppRepository _appRepo;
+    private readonly IRolePermissionRepository _rolePermRepo;
 
     public UserService(
         IUserRepository userRepo,
@@ -23,7 +27,10 @@ public sealed class UserService : IUserService
         IProjectRoleRepository roleRepoProject,
         ICustomRoleRepository customRoleRepo,
         IAuditService audit,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IUserAppRoleRepository userAppRoleRepo,
+        IAppRepository appRepo,
+        IRolePermissionRepository rolePermRepo)
     {
         _userRepo = userRepo;
         _roleRepo = roleRepo;
@@ -33,6 +40,9 @@ public sealed class UserService : IUserService
         _customRoleRepo = customRoleRepo;
         _audit = audit;
         _encryption = encryption;
+        _userAppRoleRepo = userAppRoleRepo;
+        _appRepo = appRepo;
+        _rolePermRepo = rolePermRepo;
     }
 
     public async Task<User> UpsertFromGitHubAsync(GitHubUserProfile profile)
@@ -126,6 +136,45 @@ public sealed class UserService : IUserService
         }
 
         return summaries;
+    }
+
+    public async Task<IEnumerable<IamAppClaims>> GetIamAppClaimsAsync(Guid userId)
+    {
+        var userRoles = (await _userAppRoleRepo.GetByUserAsync(userId))
+            .Where(r => r.Status == "active" && (r.ExpiresAt is null || r.ExpiresAt > DateTime.UtcNow))
+            .ToList();
+
+        // Group by app
+        var byApp = userRoles.GroupBy(r => r.AppId);
+        var claims = new List<IamAppClaims>();
+
+        foreach (var group in byApp)
+        {
+            var app = await _appRepo.GetByIdAsync(group.Key);
+            if (app is null || app.Status != "active") continue;
+
+            var roles = new List<string>();
+            var permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ur in group)
+            {
+                var role = await _roleRepo.GetByIdAsync(ur.RoleId);
+                if (role is not null) roles.Add(role.Name);
+                var perms = await _rolePermRepo.GetPermissionNamesByRoleIdAsync(ur.RoleId);
+                foreach (var p in perms) permissions.Add(p);
+            }
+
+            claims.Add(new IamAppClaims
+            {
+                AppId = app.Id.ToString(),
+                AppSlug = app.Slug,
+                Schema = app.SchemaName,
+                Roles = roles,
+                Permissions = permissions.ToList()
+            });
+        }
+
+        return claims;
     }
 
     public async Task AssignSystemRoleAsync(Guid requestingUserId, RoleAssignRequest request)
