@@ -124,15 +124,21 @@ All features are documented in `Features/`. **Read the relevant spec before impl
 
 6. ~~**Session record not created on login**~~ — session inserted in `IssueTokenPairAsync`; `EndAllForUserAsync` called on logout.
 
-### Fixed (second review)
+### Fixed (commit 52266a5)
 
 7. ~~**`MergePullRequestAsync` uses wrong permission** (`manage_members`)~~ — changed to `"write"`. `GitHubRepoService.cs`.
 
 8. ~~**`SyncDataDictionaryAsync` has no permission check**~~ — added `CheckPermissionAsync(userId, project, "write")` after the null/empty-repo early returns. `GitHubRepoService.cs`.
 
-9. ~~**Logout ends all sessions instead of the current one**~~ — `IssueTokenPairAsync` now creates a `Session` first and links it to the `RefreshToken` via `SessionId`. `Logout` calls `_sessionRepo.EndAsync(stored.SessionId.Value)` when `SessionId` is present, falling back to `EndAllForUserAsync` only for legacy tokens. `AuthController.cs`, `RefreshToken.cs`.
+9. ~~**Logout ends all sessions instead of the current one**~~ — `IssueTokenPairAsync` creates `Session` first, links `RefreshToken.SessionId` to it. Logout calls `_sessionRepo.EndAsync(stored.SessionId.Value)` when present, falls back to `EndAllForUserAsync` for legacy tokens. `AuthController.cs`, `RefreshToken.cs`.
 
 10. ~~**`UpsertOAuthLinkAsync` silently swallows missing GitHub provider**~~ — now throws `InvalidOperationException` when `oauth_providers` is not seeded. `UserService.cs`.
+
+### Fixed (commit 1a3b2c4)
+
+11. ~~**`RefreshTokenRepository.CreateAsync` INSERT omits `session_id`**~~ — `session_id` added to INSERT column list and `@SessionId` to VALUES. `RefreshTokenRepository.cs`.
+
+12. ~~**Logout fallback fires when `stored` is null**~~ — session revocation now skipped entirely when `stored` is `null`; `EndAllForUserAsync` removed. `AuthController.cs`.
 
 ---
 

@@ -118,10 +118,12 @@ public sealed class AuthController : ApiControllerBase
             await _refreshTokenRepo.RevokeAsync(stored.Id);
 
         var userId = GetUserId();
-        if (stored?.SessionId.HasValue == true)
-            await _sessionRepo.EndAsync(stored.SessionId.Value, "logout");
-        else if (userId.HasValue)
-            await _sessionRepo.EndAllForUserAsync(userId.Value, "logout");
+        if (stored is not null)
+        {
+            if (stored.SessionId.HasValue)
+                await _sessionRepo.EndAsync(stored.SessionId.Value, "logout");
+            // else: legacy token with no SessionId — session already expired naturally, nothing to end
+        }
 
         await _audit.LogAsync(userId, null, "logout");
         return Ok(ApiResponse<object?>.Ok(null));
