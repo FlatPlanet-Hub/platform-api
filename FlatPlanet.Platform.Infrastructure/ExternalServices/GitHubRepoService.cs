@@ -436,7 +436,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<MergeResultDto> MergePullRequestAsync(
         Guid userId, Guid projectId, int prNumber, MergePullRequestRequest request)
     {
-        await GetProjectAndCheckAsync(userId, projectId, "manage_members");
+        await GetProjectAndCheckAsync(userId, projectId, "write");
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var mergeMethod = request.MergeMethod.ToLowerInvariant() switch
@@ -508,6 +508,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var project = await _projectRepo.GetByIdAsync(projectId);
         if (project is null || string.IsNullOrWhiteSpace(project.GitHubRepo))
             return; // No repo linked — skip silently
+
+        await CheckPermissionAsync(userId, project, "write");
 
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 

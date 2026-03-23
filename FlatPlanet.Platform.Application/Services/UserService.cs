@@ -74,8 +74,9 @@ public sealed class UserService : IUserService
 
     private async Task UpsertOAuthLinkAsync(Guid userId, GitHubUserProfile profile)
     {
-        var provider = await _oauthProviderRepo.GetByNameAsync("github");
-        if (provider is null) return; // Provider not seeded yet — skip gracefully
+        var provider = await _oauthProviderRepo.GetByNameAsync("github")
+            ?? throw new InvalidOperationException(
+                "GitHub OAuth provider is not configured. Seed the oauth_providers table.");
 
         var encryptedToken = _encryption.Encrypt(profile.AccessToken);
         var providerUserId = profile.Id.ToString();

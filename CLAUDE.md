@@ -100,29 +100,39 @@ All features are documented in `Features/`. **Read the relevant spec before impl
 | Feature | File | Status |
 |---|---|---|
 | F1 | Feature 1 - Supabase Proxy API | Done |
-| F2 | Feature 2 - GitHub OAuth + JWT Token Issuance | Done (has known issues) |
-| F3 | Feature 3 - Admin User Onboarding & Access Management | Done (has known issues) |
-| F4 | Feature 4 - GitHub Repository Operations via Proxy API | Done (has known issues) |
+| F2 | Feature 2 - GitHub OAuth + JWT Token Issuance | Done |
+| F3 | Feature 3 - Admin User Onboarding & Access Management | Done |
+| F4 | Feature 4 - GitHub Repository Operations via Proxy API | Done |
 | F5 | Feature 5 - CLAUDE.md — Local Project Context File | Done |
-| F6 | Feature 6 - Flat Planet IAM — Centralized Identity & Access Management | Done (has known issues) |
+| F6 | Feature 6 - Flat Planet IAM — Centralized Identity & Access Management | Done |
 
 ---
 
 ## Known Issues (current branch: feature/github-repo-operations)
 
-These are open and must be fixed before merging:
+### Fixed (commit 1a94fcf)
 
-1. **GitHub token stored on `users` table** — spec requires `user_oauth_links.access_token_encrypted`. `GitHubRepoService` reads `user.GitHubAccessToken`; should read from `IUserOAuthLinkRepository`.
+1. ~~**GitHub token stored on `users` table**~~ — now reads/writes `user_oauth_links.access_token_encrypted` via `IUserOAuthLinkRepository`. `IEncryptionService` used throughout.
 
-2. **Self-registration allowed** — `UpsertFromGitHubAsync` creates new users on first OAuth login. Feature 2 spec requires rejecting unknown users (admin must onboard first via Feature 3).
+2. ~~**Self-registration allowed**~~ — `UpsertFromGitHubAsync` now throws `UnauthorizedAccessException` for unknown GitHub users.
 
-3. **No project membership / permission check in `RepoController`** — all endpoints only have `[Authorize]`. Must check `user_app_roles` and map permissions: `read` / `write` / `ddl` / `manage_members`.
+3. ~~**No project permission check on repo endpoints**~~ — `GetProjectAndCheckAsync` + `CheckPermissionAsync` added to every operation with correct permission mapping (`read` / `write` / `ddl` / `manage_members`).
 
-4. **`system_roles` JWT claim never emitted** — `RequireSystemRoleAttribute` and the `platform_admin` bypass in `RequirePermissionAttribute` depend on it. Claim is not in spec and not generated. Admin endpoints are permanently inaccessible.
+4. ~~**`system_roles` JWT claim never emitted**~~ — `GenerateAppToken` now accepts and emits `system_roles` as a JSON array claim. Wired end-to-end via `IUserService.GetSystemRoleNamesAsync`.
 
-5. **OAuth callback redirect broken** — `GitHubCallback` builds `frontendUrl = "#access_token=..."` with no base URL. `FrontendCallbackUrl` from config is never used. Tokens end up on the API server's URL.
+5. ~~**OAuth callback redirect broken**~~ — `FrontendCallbackUrl` from `GitHubSettings` is now used as the base URL.
 
-6. **Session record not created on login** — `sessions` table exists but `AuthController` never inserts into it.
+6. ~~**Session record not created on login**~~ — session inserted in `IssueTokenPairAsync`; `EndAllForUserAsync` called on logout.
+
+### Fixed (second review)
+
+7. ~~**`MergePullRequestAsync` uses wrong permission** (`manage_members`)~~ — changed to `"write"`. `GitHubRepoService.cs`.
+
+8. ~~**`SyncDataDictionaryAsync` has no permission check**~~ — added `CheckPermissionAsync(userId, project, "write")` after the null/empty-repo early returns. `GitHubRepoService.cs`.
+
+9. ~~**Logout ends all sessions instead of the current one**~~ — `IssueTokenPairAsync` now creates a `Session` first and links it to the `RefreshToken` via `SessionId`. `Logout` calls `_sessionRepo.EndAsync(stored.SessionId.Value)` when `SessionId` is present, falling back to `EndAllForUserAsync` only for legacy tokens. `AuthController.cs`, `RefreshToken.cs`.
+
+10. ~~**`UpsertOAuthLinkAsync` silently swallows missing GitHub provider**~~ — now throws `InvalidOperationException` when `oauth_providers` is not seeded. `UserService.cs`.
 
 ---
 

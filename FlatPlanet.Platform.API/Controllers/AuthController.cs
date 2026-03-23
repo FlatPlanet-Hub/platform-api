@@ -118,7 +118,9 @@ public sealed class AuthController : ApiControllerBase
             await _refreshTokenRepo.RevokeAsync(stored.Id);
 
         var userId = GetUserId();
-        if (userId.HasValue)
+        if (stored?.SessionId.HasValue == true)
+            await _sessionRepo.EndAsync(stored.SessionId.Value, "logout");
+        else if (userId.HasValue)
             await _sessionRepo.EndAllForUserAsync(userId.Value, "logout");
 
         await _audit.LogAsync(userId, null, "logout");
@@ -156,21 +158,11 @@ public sealed class AuthController : ApiControllerBase
         var systemRoles = await _userService.GetSystemRoleNamesAsync(user.Id);
         var appToken = _jwtService.GenerateAppToken(user, appClaims, systemRoles);
 
-        var rawRefresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        await _refreshTokenRepo.CreateAsync(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            UserId = user.Id,
-            TokenHash = EncryptionHelper.HashToken(rawRefresh),
-            ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
-            Revoked = false,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        // Create session record
+        // Create session first so we can link the refresh token to it
+        var sessionId = Guid.NewGuid();
         await _sessionRepo.CreateAsync(new Session
         {
-            Id = Guid.NewGuid(),
+            Id = sessionId,
             UserId = user.Id,
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             UserAgent = HttpContext.Request.Headers.UserAgent.ToString(),
@@ -178,6 +170,18 @@ public sealed class AuthController : ApiControllerBase
             LastActiveAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
             IsActive = true
+        });
+
+        var rawRefresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        await _refreshTokenRepo.CreateAsync(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            SessionId = sessionId,
+            TokenHash = EncryptionHelper.HashToken(rawRefresh),
+            ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
+            Revoked = false,
+            CreatedAt = DateTime.UtcNow
         });
 
         return (appToken, rawRefresh);
