@@ -1,0 +1,418 @@
+# Feature 2: GitHub OAuth Authentication, Roles & Access Control
+
+## What This Is
+Authentication and authorization layer for the platform. Users sign in exclusively via GitHub OAuth. The API issues JWT tokens that are used by both the frontend app and Claude Desktop (via MCP) to call the Feature 1 proxy API.
+
+## Architecture
+```
+User → Your App → GitHub OAuth → Your API → issues JWT
+                                                ↓
+Claude Desktop MCP config gets the JWT
+                                                ↓
+Claude → Your API (Feature 1) → validates JWT → Supabase
+```
+
+No passwords. No email/password registration. GitHub is the sole identity provider.
+
+## Tech Stack
+- .NET 8 Web API
+- Npgsql + Dapper for Postgres access
+- JWT Bearer authentication
+- GitHub OAuth2 for user identity
+- Supabase Postgres (platform schema)
+
+## Project Structure (adds to existing project from Feature 1)
+```
+SupabaseProxy/
+├── Auth/
+│   ├── JwtSettings.cs
+│   ├── JwtService.cs
+│   ├── GitHubOAuthService.cs
+│   └── RequirePermissionAttribute.cs
+├── Models/
+│   └── Auth/
+│       ├── GitHubTokenRequest.cs
+│       ├── AuthResponse.cs
+│       ├── RoleAssignRequest.cs
+│       └── InviteUserRequest.cs
+│   └── Project/
+│       ├── CreateProjectRequest.cs
+│       └── ProjectResponse.cs
+├── Services/
+│   ├── IUserService.cs
+│   ├── UserService.cs
+│   ├── IProjectService.cs
+│   └── ProjectService.cs
+└── Controllers/
+    ├── AuthController.cs
+    ├── RoleController.cs
+    ├── ProjectController.cs
+    └── ProjectMemberController.cs
+```
+
+---
+
+## DATABASE TABLES (run in Supabase SQL Editor)
+
+```sql
+CREATE SCHEMA IF NOT EXISTS platform;
+
+-- ─── USERS ─────────────────────────────────────────────
+CREATE TABLE platform.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_id BIGINT UNIQUE NOT NULL,
+    github_username TEXT NOT NULL,
+    email TEXT,
+    display_name TEXT NOT NULL,
+    avatar_url TEXT,
+    github_access_token TEXT,          -- encrypted, for repo operations
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── ROLES (system-wide) ──────────────────────────────
+CREATE TABLE platform.roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    is_system BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO platform.roles (name, description, is_system) VALUES
+    ('platform_admin', 'Full platform access, can manage all users and projects', true),
+    ('user', 'Standard user, can create projects and manage their own', true);
+
+-- ─── USER ROLES ────────────────────────────────────────
+CREATE TABLE platform.user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES platform.users(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES platform.roles(id) ON DELETE CASCADE,
+    assigned_by UUID REFERENCES platform.users(id),
+    assigned_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(user_id, role_id)
+);
+
+-- ─── PROJECTS ──────────────────────────────────────────
+CREATE TABLE platform.projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT,
+    schema_name TEXT UNIQUE NOT NULL,
+    owner_id UUID NOT NULL REFERENCES platform.users(id),
+    github_repo TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── PROJECT ROLES ─────────────────────────────────────
+CREATE TABLE platform.project_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES platform.projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    permissions TEXT[] NOT NULL,
+    is_default BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(project_id, name)
+);
+
+-- ─── PROJECT MEMBERS ───────────────────────────────────
+CREATE TABLE platform.project_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES platform.projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES platform.users(id) ON DELETE CASCADE,
+    project_role_id UUID NOT NULL REFERENCES platform.project_roles(id),
+    invited_by UUID REFERENCES platform.users(id),
+    status TEXT DEFAULT 'active',
+    joined_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(project_id, user_id)
+);
+
+-- ─── REFRESH TOKENS ────────────────────────────────────
+CREATE TABLE platform.refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES platform.users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── AUDIT LOG ─────────────────────────────────────────
+CREATE TABLE platform.audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES platform.users(id),
+    project_id UUID REFERENCES platform.projects(id),
+    action TEXT NOT NULL,
+    resource TEXT,
+    details JSONB,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─── INDEXES ───────────────────────────────────────────
+CREATE INDEX idx_users_github_id ON platform.users(github_id);
+CREATE INDEX idx_user_roles_user ON platform.user_roles(user_id);
+CREATE INDEX idx_project_members_user ON platform.project_members(user_id);
+CREATE INDEX idx_project_members_project ON platform.project_members(project_id);
+CREATE INDEX idx_audit_log_user ON platform.audit_log(user_id);
+CREATE INDEX idx_audit_log_project ON platform.audit_log(project_id);
+CREATE INDEX idx_audit_log_created ON platform.audit_log(created_at);
+CREATE INDEX idx_refresh_tokens_user ON platform.refresh_tokens(user_id);
+```
+
+---
+
+## API ENDPOINTS
+
+### Auth (GitHub OAuth)
+- `GET /api/auth/github` — Redirect user to GitHub OAuth consent screen
+  → Generates random `state` param, stores in session/cookie, redirects to:
+  `https://github.com/login/oauth/authorize?client_id={id}&redirect_uri={uri}&scope=user:email,repo&state={state}`
+
+- `GET /api/auth/github/callback?code={code}&state={state}` — GitHub callback
+  → Validates state, exchanges code for GitHub access token, fetches GitHub user profile, creates or updates user in `platform.users`, assigns "user" role if new, issues JWT + refresh token, redirects to frontend with tokens
+
+- `POST /api/auth/refresh`
+  ```json
+  { "refreshToken": "..." }
+  ```
+  → Issues new JWT + rotates refresh token
+
+- `POST /api/auth/logout` — Revoke refresh token
+
+- `GET /api/auth/me` — Get current user profile + system roles + projects
+
+### Auth Flow Detail
+1. Frontend opens `GET /api/auth/github`
+2. API redirects to GitHub consent screen
+3. User authorizes → GitHub redirects to callback with `code`
+4. API exchanges `code` for GitHub access token via `POST https://github.com/login/oauth/access_token`
+5. API calls `GET https://api.github.com/user` with token to get profile (id, login, name, email, avatar_url)
+6. Lookup `platform.users` by `github_id`:
+   - Exists → update `github_username`, `avatar_url`, `github_access_token`, `updated_at`
+   - New → insert user, assign "user" role
+7. Issue JWT (containing user ID, projects, permissions) + refresh token
+8. Redirect to frontend: `https://your-app.com/auth/callback#access_token={jwt}&refresh_token={rt}`
+
+### GitHub OAuth Scopes Requested
+- `user:email` — read user's email
+- `repo` — read/write repos (needed for Claude to create repos and push code)
+
+### Token Generation for Claude Desktop
+- `POST /api/auth/claude-token` — Generate a long-lived token scoped to a specific project
+  ```json
+  { "projectId": "proj-uuid" }
+  ```
+  → Returns a JWT with that single project's schema + permissions. This is what the user puts in their Claude Desktop MCP config. Longer expiry (e.g. 30 days) with option to revoke.
+
+  Response:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "token": "eyJhbG...",
+      "expiresAt": "2025-05-01T00:00:00Z",
+      "mcpConfig": {
+        "mcpServers": {
+          "your-platform": {
+            "command": "npx",
+            "args": ["-y", "your-mcp-package"],
+            "env": {
+              "API_URL": "https://your-api.com",
+              "API_TOKEN": "eyJhbG..."
+            }
+          }
+        }
+      }
+    }
+  }
+  ```
+  → The `mcpConfig` is a ready-to-use snippet the user can paste into their `claude_desktop_config.json`
+
+- `GET /api/auth/claude-tokens` — List active Claude tokens for current user
+- `DELETE /api/auth/claude-tokens/{tokenId}` — Revoke a Claude token
+
+### Role Management (platform_admin only)
+- `GET /api/roles` — List all system roles
+- `POST /api/roles/assign`
+  ```json
+  { "userId": "...", "roleName": "platform_admin" }
+  ```
+- `DELETE /api/roles/revoke` — Remove system role from user
+
+### Projects
+- `POST /api/projects` — Create project
+  ```json
+  {
+    "name": "My SaaS App",
+    "description": "Customer management platform"
+  }
+  ```
+  → Creates project, provisions Postgres schema, creates default project roles, assigns creator as owner
+
+- `GET /api/projects` — List user's projects
+- `GET /api/projects/{id}` — Get project details + members
+- `PUT /api/projects/{id}` — Update project (owner only)
+- `DELETE /api/projects/{id}` — Deactivate project (owner only)
+
+### Project Members
+- `POST /api/projects/{id}/invite`
+  ```json
+  { "githubUsername": "dev-user", "role": "developer" }
+  ```
+  → Looks up user by GitHub username, adds as project member
+
+- `PUT /api/projects/{id}/members/{userId}/role`
+  ```json
+  { "role": "viewer" }
+  ```
+- `DELETE /api/projects/{id}/members/{userId}` — Remove member
+- `GET /api/projects/{id}/members` — List members + roles
+
+### Project Roles (project owner only)
+- `GET /api/projects/{id}/roles` — List project roles
+- `POST /api/projects/{id}/roles` — Create custom role
+  ```json
+  { "name": "qa_tester", "permissions": ["read"] }
+  ```
+- `PUT /api/projects/{id}/roles/{roleId}` — Update permissions
+- `DELETE /api/projects/{id}/roles/{roleId}` — Delete custom role
+
+---
+
+## JWT TOKEN STRUCTURES
+
+### App JWT (short-lived, 60 min, for frontend app use)
+```json
+{
+  "sub": "user-uuid",
+  "github_id": 12345678,
+  "github_username": "johndoe",
+  "display_name": "John Doe",
+  "system_roles": ["user"],
+  "projects": [
+    {
+      "project_id": "proj-uuid",
+      "schema": "project_abc123",
+      "project_role": "owner",
+      "permissions": ["read", "write", "ddl", "manage_members"]
+    }
+  ],
+  "token_type": "app",
+  "iat": 1234567890,
+  "exp": 1234571490
+}
+```
+
+### Claude Token (long-lived, 30 days, single project scope)
+```json
+{
+  "sub": "user-uuid",
+  "github_id": 12345678,
+  "project_id": "proj-uuid",
+  "schema": "project_abc123",
+  "permissions": ["read", "write", "ddl"],
+  "token_type": "claude",
+  "iat": 1234567890,
+  "exp": 1237163490
+}
+```
+
+---
+
+## PERMISSION MATRIX
+
+### System Roles
+| Action                  | platform_admin | user |
+|-------------------------|:-:|:-:|
+| Manage all users        | ✅ | ❌ |
+| Assign system roles     | ✅ | ❌ |
+| View all projects       | ✅ | ❌ |
+| Create own projects     | ✅ | ✅ |
+
+### Default Project Roles (auto-created per project)
+| Permission       | owner | developer | viewer |
+|------------------|:-----:|:---------:|:------:|
+| read             | ✅    | ✅        | ✅     |
+| write            | ✅    | ✅        | ❌     |
+| ddl              | ✅    | ✅        | ❌     |
+| manage_members   | ✅    | ❌        | ❌     |
+| delete_project   | ✅    | ❌        | ❌     |
+
+---
+
+## PROJECT CREATION FLOW
+
+When `POST /api/projects` is called:
+1. Generate short ID (e.g. `abc123`)
+2. Create record in `platform.projects` with `schema_name = "project_abc123"`
+3. Run `CREATE SCHEMA IF NOT EXISTS "project_abc123"` in Postgres
+4. Create default project roles in `platform.project_roles`:
+   - owner: `["read", "write", "ddl", "manage_members", "delete_project"]`
+   - developer: `["read", "write", "ddl"]`
+   - viewer: `["read"]`
+5. Add creator as member with "owner" role
+6. Log action in `platform.audit_log`
+7. Return project details + updated JWT
+
+---
+
+## SECURITY REQUIREMENTS
+1. **GitHub OAuth state** — Random `state` param to prevent CSRF
+2. **GitHub token encryption** — Encrypt `github_access_token` at rest in the database using AES-256
+3. **Token expiry** — App JWT: 60 min. Refresh: 7 days. Claude token: 30 days.
+4. **Refresh token rotation** — Old token revoked when new one issued
+5. **Claude token revocation** — Users can revoke Claude tokens at any time
+6. **Permission checks** — Verify project membership + permission on every operation
+7. **Owner-only actions** — Project deletion, member management gated to owner role
+8. **Admin-only actions** — System role assignment gated to platform_admin
+9. **Audit logging** — Log all auth events, role changes, invitations, project operations
+10. **Rate limiting** — Per user, per endpoint
+11. **No Supabase credentials exposed** — Only the API server knows the connection string
+
+---
+
+## appsettings.json (extends Feature 1)
+```json
+{
+  "Jwt": {
+    "Issuer": "your-platform",
+    "Audience": "claude-mcp",
+    "SecretKey": "CHANGE_ME_MIN_32_CHARACTERS_LONG!!",
+    "AccessTokenExpiryMinutes": 60,
+    "RefreshTokenExpiryDays": 7,
+    "ClaudeTokenExpiryDays": 30
+  },
+  "GitHub": {
+    "ClientId": "YOUR_GITHUB_OAUTH_CLIENT_ID",
+    "ClientSecret": "YOUR_GITHUB_OAUTH_CLIENT_SECRET",
+    "RedirectUri": "https://your-api.com/api/auth/github/callback"
+  },
+  "Encryption": {
+    "Key": "CHANGE_ME_32_CHAR_AES_KEY_HERE!!"
+  }
+}
+```
+
+---
+
+## RESPONSE FORMAT
+```json
+{
+  "success": true,
+  "data": { ... },
+  "error": null
+}
+```
+
+Error:
+```json
+{
+  "success": false,
+  "data": null,
+  "error": "You do not have permission to manage members on this project."
+}
+```
