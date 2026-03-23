@@ -162,6 +162,14 @@ All features are documented in `Features/`. **Read the relevant spec before impl
 
 22. ~~**Resource policies never fetched in `AuthorizeAsync`**~~ — `IResourcePolicyRepository` created and injected; policies fetched by resource id and returned in response. `IamAuthorizationService.cs`, `ResourcePolicyRepository.cs`.
 
+### Fixed (third review)
+
+23. ~~**`UserRepository.UpdateAsync` does not include `status` column**~~ — `status = @Status` added to UPDATE. `UserRepository.cs`.
+
+24. ~~**`QueryController` audits every read query**~~ — `query.read` audit call removed; write auditing preserved. `QueryController.cs`.
+
+25. ~~**`ClaudeConfigService.RegenerateAsync`/`RevokeAsync` missing null `AppId` guard**~~ — both methods now throw `InvalidOperationException` if `project.AppId is null`, matching the guard in `GetContextAsync`. `ClaudeConfigService.cs`.
+
 ---
 
 ## Coding Conventions

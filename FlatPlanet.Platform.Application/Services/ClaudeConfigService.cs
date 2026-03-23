@@ -70,9 +70,11 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     public async Task<ClaudeConfigResponse> RegenerateAsync(Guid userId, Guid projectId, string baseUrl)
     {
-        // Issue 14: scope revocation to this project's app only
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
         foreach (var t in tokens.Where(t => t.AppId == project.AppId))
@@ -86,6 +88,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
     {
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
         foreach (var t in tokens.Where(t => t.AppId == project.AppId))

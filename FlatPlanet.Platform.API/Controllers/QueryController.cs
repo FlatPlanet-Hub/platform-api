@@ -35,7 +35,6 @@ public sealed class QueryController : ApiControllerBase
             return BadRequest(ApiResponse<object>.Fail(error!));
 
         var result = await _dbProxy.ExecuteReadAsync(claims.Schema, request);
-        await _audit.LogAsync(GetUserId(), null, "query.read", claims.Schema);
         return Ok(ApiResponse<IEnumerable<dynamic>>.Ok(result));
     }
 
