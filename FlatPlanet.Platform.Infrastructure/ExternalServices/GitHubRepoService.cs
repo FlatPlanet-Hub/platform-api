@@ -62,8 +62,11 @@ public sealed class GitHubRepoService : IGitHubRepoService
             throw new InvalidOperationException("No GitHub repository linked to this project.");
 
         var parts = project.GitHubRepo.Split('/', 2);
-        if (parts.Length != 2)
-            throw new InvalidOperationException("Invalid github_repo format stored on project.");
+        if (parts.Length != 2
+            || string.IsNullOrWhiteSpace(parts[0])
+            || string.IsNullOrWhiteSpace(parts[1]))
+            throw new InvalidOperationException(
+                $"Invalid github_repo format '{project.GitHubRepo}'. Expected 'owner/repo'.");
 
         return (client, parts[0], parts[1]);
     }
@@ -149,6 +152,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<object> GetFilesAsync(Guid userId, Guid projectId, string? path, string? branch)
     {
+        ValidateFilePath(path);
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         var effectivePath = string.IsNullOrWhiteSpace(path) ? string.Empty : path;
@@ -193,6 +197,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task<FileContentDto> UpsertFileAsync(Guid userId, Guid projectId, UpsertFileRequest request)
     {
+        ValidateFilePath(request.Path);
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         RepositoryContentChangeSet result;
@@ -216,6 +221,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task DeleteFileAsync(Guid userId, Guid projectId, AppDeleteFileRequest request)
     {
+        ValidateFilePath(request.Path);
         var (client, owner, repoName) = await GetClientAsync(userId, projectId);
 
         await client.Repository.Content.DeleteFile(owner, repoName,
@@ -521,6 +527,21 @@ public sealed class GitHubRepoService : IGitHubRepoService
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    private static void ValidateFilePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return; // empty = repo root, allowed
+
+        var normalized = path.Replace('\\', '/');
+        if (normalized.StartsWith('/'))
+            throw new ArgumentException($"File path must not start with '/': '{path}'");
+
+        foreach (var segment in normalized.Split('/'))
+        {
+            if (segment == ".." || segment == ".")
+                throw new ArgumentException($"File path must not contain '.' or '..' segments: '{path}'");
+        }
+    }
 
     private static async Task SeedInitialFilesAsync(
         GitHubClient client, string owner, string repoName,

@@ -32,10 +32,12 @@ public sealed class ProjectScopeMiddleware
             return;
         }
 
+        const string AppTokenType = "app";
+
         var tokenType = context.User.FindFirst("token_type")?.Value;
 
-        // App JWT tokens (frontend use) do not carry a single schema — skip schema enforcement
-        if (tokenType == "app")
+        // App JWT tokens (frontend use) carry per-app claims in an apps[] array — no single schema
+        if (tokenType == AppTokenType)
         {
             await _next(context);
             return;

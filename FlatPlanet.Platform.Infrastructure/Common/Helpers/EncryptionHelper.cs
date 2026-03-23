@@ -46,9 +46,11 @@ public static class EncryptionHelper
     private static byte[] DeriveKey(string key)
     {
         var keyBytes = Encoding.UTF8.GetBytes(key);
-        if (keyBytes.Length == 32) return keyBytes;
-        var result = new byte[32];
-        Buffer.BlockCopy(keyBytes, 0, result, 0, Math.Min(keyBytes.Length, 32));
-        return result;
+        if (keyBytes.Length < 32)
+            throw new InvalidOperationException(
+                $"Encryption key must be at least 32 UTF-8 bytes (got {keyBytes.Length}). " +
+                "Set a sufficiently long key in Encryption:Key.");
+        // Use first 32 bytes for AES-256; keys longer than 32 bytes are fine.
+        return keyBytes.Length == 32 ? keyBytes : keyBytes[..32];
     }
 }
