@@ -12,19 +12,22 @@ public sealed class AdminUserService : IAdminUserService
     private readonly IRoleRepository _roleRepo;
     private readonly ICustomRoleRepository _customRoleRepo;
     private readonly IAuditService _audit;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
 
     public AdminUserService(
         IUserRepository userRepo,
         IProjectMemberRepository memberRepo,
         IRoleRepository roleRepo,
         ICustomRoleRepository customRoleRepo,
-        IAuditService audit)
+        IAuditService audit,
+        IUserAppRoleRepository userAppRoleRepo)
     {
         _userRepo = userRepo;
         _memberRepo = memberRepo;
         _roleRepo = roleRepo;
         _customRoleRepo = customRoleRepo;
         _audit = audit;
+        _userAppRoleRepo = userAppRoleRepo;
     }
 
     public async Task<AdminUserListResponse> ListUsersAsync(AdminUserListFilter filter)
@@ -204,6 +207,38 @@ public sealed class AdminUserService : IAdminUserService
 
         await _audit.LogAsync(adminId, null, "admin.user.deactivated", "users",
             new { targetUserId = userId });
+    }
+
+    public async Task UpdateUserStatusAsync(Guid adminId, Guid userId, UpdateUserStatusRequest request)
+    {
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "active", "inactive", "suspended" };
+        if (!allowed.Contains(request.Status))
+            throw new ArgumentException($"Invalid status '{request.Status}'. Must be active, inactive, or suspended.");
+
+        if (adminId == userId && request.Status != "active")
+            throw new InvalidOperationException("Admins cannot deactivate or suspend their own account.");
+
+        var user = await _userRepo.GetByIdAsync(userId)
+            ?? throw new KeyNotFoundException($"User {userId} not found.");
+
+        user.Status = request.Status;
+        user.IsActive = request.Status == "active";
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepo.UpdateAsync(user);
+
+        await _audit.LogAsync(adminId, null, "admin.user.status_updated", "users",
+            new { targetUserId = userId, status = request.Status });
+    }
+
+    public async Task UpdateUserAppRoleAsync(Guid adminId, Guid userId, UpdateUserAppRoleRequest request)
+    {
+        if (adminId == userId)
+            throw new InvalidOperationException("Admins cannot change their own app role.");
+
+        await _userAppRoleRepo.ChangeRoleAsync(userId, request.AppId, request.RoleId);
+
+        await _audit.LogAsync(adminId, request.AppId, "admin.user.app_role_updated", "user_app_roles",
+            new { targetUserId = userId, newRoleId = request.RoleId });
     }
 
     private async Task<AdminUserDto> BuildAdminUserDtoAsync(User user)

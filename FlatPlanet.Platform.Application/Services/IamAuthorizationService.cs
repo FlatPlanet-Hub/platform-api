@@ -8,6 +8,8 @@ public sealed class IamAuthorizationService(
     IUserAppRoleRepository userAppRoleRepo,
     IRolePermissionRepository rolePermRepo,
     IResourceRepository resourceRepo,
+    IResourcePolicyRepository resourcePolicyRepo,
+    IRoleRepository roleRepo,
     IAuditService audit) : IIamAuthorizationService
 {
     public async Task<AuthorizeResponse> AuthorizeAsync(AuthorizeRequest request)
@@ -34,6 +36,10 @@ public sealed class IamAuthorizationService(
         {
             var perms = await rolePermRepo.GetPermissionNamesByRoleIdAsync(userRole.RoleId);
             foreach (var p in perms) allPermissions.Add(p);
+
+            // Issue 21: populate role names
+            var role = await roleRepo.GetByIdAsync(userRole.RoleId);
+            if (role is not null) roleNames.Add(role.Name);
         }
 
         // Check required permission
@@ -45,13 +51,17 @@ public sealed class IamAuthorizationService(
             return new AuthorizeResponse { Allowed = false, Permissions = allPermissions.ToList() };
         }
 
-        // Collect resource policies
+        // Issue 22: fetch resource policies
         var policies = new Dictionary<string, string>();
         if (!string.IsNullOrEmpty(request.ResourceIdentifier))
         {
             var resource = await resourceRepo.GetByIdentifierAsync(app.Id, request.ResourceIdentifier);
-            // Policies could be fetched here if IResourcePolicyRepository is implemented
-            // For now, return empty policies
+            if (resource is not null)
+            {
+                var resourcePolicies = await resourcePolicyRepo.GetByResourceIdAsync(resource.Id);
+                foreach (var p in resourcePolicies)
+                    policies[p.PolicyKey] = p.PolicyValue;
+            }
         }
 
         await audit.LogAsync(request.UserId, app.Id, "authorize.allowed", "user_app_roles",

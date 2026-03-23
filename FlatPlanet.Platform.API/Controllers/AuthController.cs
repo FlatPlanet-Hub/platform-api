@@ -47,7 +47,7 @@ public sealed class AuthController : ApiControllerBase
         _gitHubSettings = gitHubSettings.Value;
     }
 
-    [HttpGet("github")]
+    [HttpGet("oauth/github")]
     public IActionResult GitHub()
     {
         var state = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -63,7 +63,7 @@ public sealed class AuthController : ApiControllerBase
         return Redirect(url);
     }
 
-    [HttpGet("github/callback")]
+    [HttpGet("oauth/github/callback")]
     public async Task<IActionResult> GitHubCallback([FromQuery] string code, [FromQuery] string state)
     {
         var storedState = Request.Cookies["oauth_state"];

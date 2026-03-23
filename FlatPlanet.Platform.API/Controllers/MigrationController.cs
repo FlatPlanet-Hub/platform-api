@@ -14,11 +14,13 @@ public sealed class MigrationController : ApiControllerBase
 {
     private readonly IDbProxyService _dbProxy;
     private readonly IGitHubRepoService _repoService;
+    private readonly IAuditService _audit;
 
-    public MigrationController(IDbProxyService dbProxy, IGitHubRepoService repoService)
+    public MigrationController(IDbProxyService dbProxy, IGitHubRepoService repoService, IAuditService audit)
     {
         _dbProxy = dbProxy;
         _repoService = repoService;
+        _audit = audit;
     }
 
     [HttpPost("create-schema")]
@@ -31,6 +33,7 @@ public sealed class MigrationController : ApiControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'ddl' permission."));
 
         await _dbProxy.CreateSchemaAsync(claims.Schema);
+        await _audit.LogAsync(GetUserId(), null, "migration.create_schema", claims.Schema);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -56,6 +59,8 @@ public sealed class MigrationController : ApiControllerBase
         }
 
         await _dbProxy.CreateTableAsync(claims.Schema, request);
+        await _audit.LogAsync(GetUserId(), null, "migration.create_table", claims.Schema,
+            new { table = request.TableName });
         await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
@@ -82,6 +87,8 @@ public sealed class MigrationController : ApiControllerBase
         }
 
         await _dbProxy.AlterTableAsync(claims.Schema, request);
+        await _audit.LogAsync(GetUserId(), null, "migration.alter_table", claims.Schema,
+            new { table = request.TableName });
         await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
@@ -99,6 +106,8 @@ public sealed class MigrationController : ApiControllerBase
             return BadRequest(ApiResponse<object>.Fail("Invalid table name."));
 
         await _dbProxy.DropTableAsync(claims.Schema, table);
+        await _audit.LogAsync(GetUserId(), null, "migration.drop_table", claims.Schema,
+            new { table });
         await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }

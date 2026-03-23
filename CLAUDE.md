@@ -134,11 +134,33 @@ All features are documented in `Features/`. **Read the relevant spec before impl
 
 10. ~~**`UpsertOAuthLinkAsync` silently swallows missing GitHub provider**~~ — now throws `InvalidOperationException` when `oauth_providers` is not seeded. `UserService.cs`.
 
-### Fixed (commit 1a3b2c4)
+### Fixed (commit aa7cfb5)
 
 11. ~~**`RefreshTokenRepository.CreateAsync` INSERT omits `session_id`**~~ — `session_id` added to INSERT column list and `@SessionId` to VALUES. `RefreshTokenRepository.cs`.
 
 12. ~~**Logout fallback fires when `stored` is null**~~ — session revocation now skipped entirely when `stored` is `null`; `EndAllForUserAsync` removed. `AuthController.cs`.
+
+### Fixed (spec compliance review)
+
+13. ~~**`ClaudeConfigService.RenderTemplate` generates wrong API paths**~~ — paths corrected to `/api/schema/full`, `/api/migration/create-table`, `/api/query/read`. `ClaudeConfigService.cs`.
+
+14. ~~**`RegenerateAsync` revokes tokens across all projects**~~ — token creation now sets `AppId = project.AppId`; revocation filters by `t.AppId == project.AppId`. `ClaudeConfigService.cs`.
+
+15. ~~**`ClaudeConfigService.GetContextAsync` uses Feature 3 tables**~~ — replaced `IProjectMemberRepository`/`IProjectRoleRepository` with `IUserAppRoleRepository`/`IRolePermissionRepository`. `ClaudeConfigService.cs`.
+
+16. ~~**OAuth route path mismatch**~~ — routes updated to `/api/auth/oauth/github` and `/api/auth/oauth/github/callback`. `AuthController.cs`.
+
+17. ~~**`SchemaController` has no permission check**~~ — `read` permission check added to all 4 endpoints. `SchemaController.cs`.
+
+18. ~~**No audit logging on DDL or write operations**~~ — `IAuditService` injected into `MigrationController` and `QueryController`; every DDL and write operation is now logged. `MigrationController.cs`, `QueryController.cs`.
+
+19. ~~**Missing `PUT /api/admin/users/{id}/status` endpoint**~~ — endpoint added accepting `"active"`, `"inactive"`, `"suspended"`. `AdminUserController.cs`, `AdminUserService.cs`, `AdminUserRequests.cs`.
+
+20. ~~**`PUT /api/admin/users/{id}/role` missing**~~ — new singular endpoint added for single app-role change via `IUserAppRoleRepository.ChangeRoleAsync`. `AdminUserController.cs`, `AdminUserService.cs`.
+
+21. ~~**`IamAuthorizationService.AuthorizeAsync` always returns empty `Roles`**~~ — `roleRepo.GetByIdAsync` called in the role loop to populate `roleNames`. `IamAuthorizationService.cs`.
+
+22. ~~**Resource policies never fetched in `AuthorizeAsync`**~~ — `IResourcePolicyRepository` created and injected; policies fetched by resource id and returned in response. `IamAuthorizationService.cs`, `ResourcePolicyRepository.cs`.
 
 ---
 

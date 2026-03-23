@@ -13,10 +13,12 @@ namespace FlatPlanet.Platform.API.Controllers;
 public sealed class QueryController : ApiControllerBase
 {
     private readonly IDbProxyService _dbProxy;
+    private readonly IAuditService _audit;
 
-    public QueryController(IDbProxyService dbProxy)
+    public QueryController(IDbProxyService dbProxy, IAuditService audit)
     {
         _dbProxy = dbProxy;
+        _audit = audit;
     }
 
     [HttpPost("read")]
@@ -33,6 +35,7 @@ public sealed class QueryController : ApiControllerBase
             return BadRequest(ApiResponse<object>.Fail(error!));
 
         var result = await _dbProxy.ExecuteReadAsync(claims.Schema, request);
+        await _audit.LogAsync(GetUserId(), null, "query.read", claims.Schema);
         return Ok(ApiResponse<IEnumerable<dynamic>>.Ok(result));
     }
 
@@ -50,6 +53,8 @@ public sealed class QueryController : ApiControllerBase
             return BadRequest(ApiResponse<object>.Fail(error!));
 
         var rowsAffected = await _dbProxy.ExecuteWriteAsync(claims.Schema, request);
+        await _audit.LogAsync(GetUserId(), null, "query.write", claims.Schema,
+            new { rowsAffected });
         return Ok(ApiResponse<object?>.Ok(null, rowsAffected));
     }
 

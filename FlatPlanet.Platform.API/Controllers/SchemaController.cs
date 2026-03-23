@@ -23,6 +23,8 @@ public sealed class SchemaController : ApiControllerBase
     {
         var claims = GetClaims();
         if (claims is null) return Forbid();
+        if (!claims.HasPermission("read"))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'read' permission."));
 
         var tables = await _dbProxy.GetTablesAsync(claims.Schema);
         return Ok(ApiResponse<IEnumerable<TableInfoDto>>.Ok(tables));
@@ -33,6 +35,8 @@ public sealed class SchemaController : ApiControllerBase
     {
         var claims = GetClaims();
         if (claims is null) return Forbid();
+        if (!claims.HasPermission("read"))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'read' permission."));
 
         var columns = await _dbProxy.GetColumnsAsync(claims.Schema, table);
         return Ok(ApiResponse<IEnumerable<ColumnInfoDto>>.Ok(columns));
@@ -43,6 +47,8 @@ public sealed class SchemaController : ApiControllerBase
     {
         var claims = GetClaims();
         if (claims is null) return Forbid();
+        if (!claims.HasPermission("read"))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'read' permission."));
 
         var relationships = await _dbProxy.GetRelationshipsAsync(claims.Schema);
         return Ok(ApiResponse<IEnumerable<RelationshipDto>>.Ok(relationships));
@@ -53,6 +59,8 @@ public sealed class SchemaController : ApiControllerBase
     {
         var claims = GetClaims();
         if (claims is null) return Forbid();
+        if (!claims.HasPermission("read"))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'read' permission."));
 
         var full = await _dbProxy.GetFullSchemaAsync(claims.Schema);
         return Ok(ApiResponse<FullSchemaDto>.Ok(full));

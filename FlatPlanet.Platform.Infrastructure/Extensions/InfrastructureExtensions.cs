@@ -55,6 +55,7 @@ public static class InfrastructureExtensions
         services.AddScoped<IUserOAuthLinkRepository, UserOAuthLinkRepository>();
         services.AddScoped<IRolePermissionRepository, RolePermissionRepository>();
         services.AddScoped<IResourceRepository, ResourceRepository>();
+        services.AddScoped<IResourcePolicyRepository, ResourcePolicyRepository>();
 
         // Application services
         services.AddScoped<IUserService, UserService>();

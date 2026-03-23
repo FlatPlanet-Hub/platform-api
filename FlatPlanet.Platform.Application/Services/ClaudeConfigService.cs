@@ -9,29 +9,29 @@ namespace FlatPlanet.Platform.Application.Services;
 public sealed class ClaudeConfigService : IClaudeConfigService
 {
     private readonly IProjectRepository _projectRepo;
-    private readonly IProjectMemberRepository _memberRepo;
-    private readonly IProjectRoleRepository _roleRepo;
     private readonly IUserRepository _userRepo;
     private readonly IApiTokenRepository _apiTokenRepo;
     private readonly IJwtService _jwtService;
     private readonly IAuditService _audit;
+    private readonly IUserAppRoleRepository _userAppRoleRepo;
+    private readonly IRolePermissionRepository _rolePermRepo;
 
     public ClaudeConfigService(
         IProjectRepository projectRepo,
-        IProjectMemberRepository memberRepo,
-        IProjectRoleRepository roleRepo,
         IUserRepository userRepo,
         IApiTokenRepository apiTokenRepo,
         IJwtService jwtService,
-        IAuditService audit)
+        IAuditService audit,
+        IUserAppRoleRepository userAppRoleRepo,
+        IRolePermissionRepository rolePermRepo)
     {
         _projectRepo = projectRepo;
-        _memberRepo = memberRepo;
-        _roleRepo = roleRepo;
         _userRepo = userRepo;
         _apiTokenRepo = apiTokenRepo;
         _jwtService = jwtService;
         _audit = audit;
+        _userAppRoleRepo = userAppRoleRepo;
+        _rolePermRepo = rolePermRepo;
     }
 
     public async Task<ClaudeConfigResponse> GenerateAsync(Guid userId, Guid projectId, string baseUrl)
@@ -48,7 +48,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            AppId = null,
+            AppId = project.AppId,   // Issue 14: scope token to the project's app
             Name = $"Claude token for {project.Name}",
             TokenHash = tokenHash,
             Permissions = permissions,
@@ -57,7 +57,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             CreatedAt = DateTime.UtcNow
         });
 
-        await _audit.LogAsync(userId, null, "claude_config.generated", "api_tokens",
+        await _audit.LogAsync(userId, project.AppId, "claude_config.generated", "api_tokens",
             new { tokenId = stored.Id });
 
         return new ClaudeConfigResponse
@@ -70,22 +70,28 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     public async Task<ClaudeConfigResponse> RegenerateAsync(Guid userId, Guid projectId, string baseUrl)
     {
-        // Revoke all active tokens for this user/project combo
+        // Issue 14: scope revocation to this project's app only
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
-        foreach (var t in tokens.Where(t => !t.AppId.HasValue))
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
             await _apiTokenRepo.RevokeAsync(t.Id, "regenerated");
 
-        await _audit.LogAsync(userId, null, "claude_config.revoked_all", "api_tokens");
+        await _audit.LogAsync(userId, project.AppId, "claude_config.revoked_all", "api_tokens");
         return await GenerateAsync(userId, projectId, baseUrl);
     }
 
     public async Task RevokeAsync(Guid userId, Guid projectId)
     {
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
-        foreach (var t in tokens.Where(t => !t.AppId.HasValue))
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
             await _apiTokenRepo.RevokeAsync(t.Id, "revoked");
 
-        await _audit.LogAsync(userId, null, "claude_config.revoked", "api_tokens");
+        await _audit.LogAsync(userId, project.AppId, "claude_config.revoked", "api_tokens");
     }
 
     public async Task<IEnumerable<ClaudeTokenSummaryDto>> ListActiveTokensAsync(Guid userId)
@@ -103,16 +109,37 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    // Issue 15: replaced project_members/project_roles with user_app_roles/role_permissions
     private async Task<(User user, Project project, string[] permissions)> GetContextAsync(Guid userId, Guid projectId)
     {
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-        var member = await _memberRepo.GetAsync(projectId, userId)
-            ?? throw new UnauthorizedAccessException("You are not a member of this project.");
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
-        var role = await _roleRepo.GetByIdAsync(projectId, member.ProjectRoleId);
-        var permissions = role?.Permissions ?? [];
+        string[] permissions;
+        if (project.OwnerId == userId)
+        {
+            permissions = ["read", "write", "ddl", "manage_members"];
+        }
+        else
+        {
+            var userRoles = (await _userAppRoleRepo.GetByUserAndAppAsync(userId, project.AppId.Value))
+                .Where(r => r.Status == "active" && (r.ExpiresAt is null || r.ExpiresAt > DateTime.UtcNow))
+                .ToList();
+
+            if (userRoles.Count == 0)
+                throw new UnauthorizedAccessException("You do not have access to this project.");
+
+            var allPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ur in userRoles)
+            {
+                var perms = await _rolePermRepo.GetPermissionNamesByRoleIdAsync(ur.RoleId);
+                foreach (var p in perms) allPermissions.Add(p);
+            }
+            permissions = allPermissions.ToArray();
+        }
 
         var user = await _userRepo.GetByIdAsync(userId)
             ?? throw new KeyNotFoundException($"User {userId} not found.");
@@ -120,6 +147,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         return (user, project, permissions);
     }
 
+    // Issue 13: corrected API paths — project context comes from JWT, not the URL
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl)
     {
         var sb = new StringBuilder();
@@ -141,16 +169,16 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine($"Authorization: Bearer {token}");
         sb.AppendLine();
         sb.AppendLine("### Read Schema (ALWAYS DO THIS FIRST)");
-        sb.AppendLine($"GET {baseUrl}/api/projects/{project.Id}/schema/full");
+        sb.AppendLine($"GET {baseUrl}/api/schema/full");
         sb.AppendLine();
         sb.AppendLine("### Create Table");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/migration/create-table");
+        sb.AppendLine($"POST {baseUrl}/api/migration/create-table");
         sb.AppendLine();
         sb.AppendLine("### Read Query");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/query/read");
+        sb.AppendLine($"POST {baseUrl}/api/query/read");
         sb.AppendLine();
         sb.AppendLine("### Write Query");
-        sb.AppendLine($"POST {baseUrl}/api/projects/{project.Id}/query/write");
+        sb.AppendLine($"POST {baseUrl}/api/query/write");
         sb.AppendLine();
         sb.AppendLine("## Rules");
         sb.AppendLine("1. ALWAYS read the schema first before writing any database code");

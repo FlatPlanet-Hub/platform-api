@@ -13,9 +13,10 @@ public sealed class AdminUserServiceTests
     private readonly Mock<IRoleRepository> _roleRepo = new();
     private readonly Mock<ICustomRoleRepository> _customRoleRepo = new();
     private readonly Mock<IAuditService> _audit = new();
+    private readonly Mock<IUserAppRoleRepository> _userAppRoleRepo = new();
 
     private AdminUserService CreateSut() =>
-        new(_userRepo.Object, _memberRepo.Object, _roleRepo.Object, _customRoleRepo.Object, _audit.Object);
+        new(_userRepo.Object, _memberRepo.Object, _roleRepo.Object, _customRoleRepo.Object, _audit.Object, _userAppRoleRepo.Object);
 
     [Fact]
     public async Task CreateUser_ShouldThrow_WhenGitHubIdAlreadyExists()

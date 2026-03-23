@@ -41,6 +41,18 @@ public sealed class UpdateUserProjectRoleRequest
     public Guid ProjectRoleId { get; init; }
 }
 
+public sealed class UpdateUserStatusRequest
+{
+    /// <summary>Accepted values: "active", "inactive", "suspended"</summary>
+    public string Status { get; init; } = string.Empty;
+}
+
+public sealed class UpdateUserAppRoleRequest
+{
+    public Guid AppId { get; init; }
+    public Guid RoleId { get; init; }
+}
+
 public sealed class AdminUserListFilter
 {
     public string? Search { get; init; }
