@@ -226,6 +226,10 @@ public sealed class AdminUserService : IAdminUserService
         user.UpdatedAt = DateTime.UtcNow;
         await _userRepo.UpdateAsync(user);
 
+        // Cascade on deactivate/suspend: revoke tokens (sessions expire naturally)
+        if (request.Status != "active")
+            await _userRepo.RevokeAllTokensAsync(userId);
+
         await _audit.LogAsync(adminId, null, "admin.user.status_updated", "users",
             new { targetUserId = userId, status = request.Status });
     }

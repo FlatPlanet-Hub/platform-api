@@ -170,6 +170,12 @@ All features are documented in `Features/`. **Read the relevant spec before impl
 
 25. ~~**`ClaudeConfigService.RegenerateAsync`/`RevokeAsync` missing null `AppId` guard**~~ — both methods now throw `InvalidOperationException` if `project.AppId is null`, matching the guard in `GetContextAsync`. `ClaudeConfigService.cs`.
 
+### Fixed (review of commit f819349)
+
+26. ~~**`AuthorizeController` has no `[Authorize]`**~~ — `[Authorize]` added. `AuthorizeController.cs`.
+
+27. ~~**`UpdateUserStatusAsync` missing deactivation cascade**~~ — `RevokeAllTokensAsync` now called when status is `inactive` or `suspended`, matching `DeactivateUserAsync` behaviour. `AdminUserService.cs`.
+
 ---
 
 ## Coding Conventions

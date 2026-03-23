@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FlatPlanet.Platform.Application.DTOs;
 using FlatPlanet.Platform.Application.DTOs.Iam;
@@ -6,6 +7,7 @@ using FlatPlanet.Platform.Application.Interfaces;
 namespace FlatPlanet.Platform.API.Controllers;
 
 [Route("api/authorize")]
+[Authorize]
 public sealed class AuthorizeController(IIamAuthorizationService authorizationService) : ApiControllerBase
 {
     /// <summary>
