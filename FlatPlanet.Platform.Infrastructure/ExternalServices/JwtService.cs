@@ -37,8 +37,8 @@ public sealed class JwtService : IJwtService
         return BuildToken(claims, DateTime.UtcNow.AddMinutes(_settings.ExpiryMinutes));
     }
 
-    // Feature 6 — short-lived app JWT with apps[] array claims
-    public string GenerateAppToken(User user, IEnumerable<IamAppClaims> apps)
+    // Feature 6 — short-lived app JWT with apps[] array claims + system_roles
+    public string GenerateAppToken(User user, IEnumerable<IamAppClaims> apps, IEnumerable<string> systemRoles)
     {
         var appsJson = JsonSerializer.Serialize(apps.Select(a => new
         {
@@ -49,12 +49,15 @@ public sealed class JwtService : IJwtService
             permissions = a.Permissions
         }));
 
+        var systemRolesJson = JsonSerializer.Serialize(systemRoles.ToArray());
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new("email", user.Email),
             new("full_name", user.FullName),
             new("apps", appsJson),
+            new("system_roles", systemRolesJson),
             new("token_type", "app"),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };

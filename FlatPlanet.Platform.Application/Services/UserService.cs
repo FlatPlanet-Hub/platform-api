@@ -18,6 +18,8 @@ public sealed class UserService : IUserService
     private readonly IUserAppRoleRepository _userAppRoleRepo;
     private readonly IAppRepository _appRepo;
     private readonly IRolePermissionRepository _rolePermRepo;
+    private readonly IUserOAuthLinkRepository _oauthLinkRepo;
+    private readonly IOAuthProviderRepository _oauthProviderRepo;
 
     public UserService(
         IUserRepository userRepo,
@@ -30,7 +32,9 @@ public sealed class UserService : IUserService
         IEncryptionService encryption,
         IUserAppRoleRepository userAppRoleRepo,
         IAppRepository appRepo,
-        IRolePermissionRepository rolePermRepo)
+        IRolePermissionRepository rolePermRepo,
+        IUserOAuthLinkRepository oauthLinkRepo,
+        IOAuthProviderRepository oauthProviderRepo)
     {
         _userRepo = userRepo;
         _roleRepo = roleRepo;
@@ -43,52 +47,60 @@ public sealed class UserService : IUserService
         _userAppRoleRepo = userAppRoleRepo;
         _appRepo = appRepo;
         _rolePermRepo = rolePermRepo;
+        _oauthLinkRepo = oauthLinkRepo;
+        _oauthProviderRepo = oauthProviderRepo;
     }
 
     public async Task<User> UpsertFromGitHubAsync(GitHubUserProfile profile)
     {
-        var encryptedToken = _encryption.Encrypt(profile.AccessToken);
         var existing = await _userRepo.GetByGitHubIdAsync(profile.Id);
 
+        if (existing is null)
+            throw new UnauthorizedAccessException(
+                "Your GitHub account has not been onboarded. Contact a platform admin to get access.");
+
+        // Update GitHub-owned fields; preserve admin-set first_name/last_name
+        existing.GitHubUsername = profile.Login;
+        existing.Email ??= profile.Email;
+        existing.AvatarUrl = profile.AvatarUrl;
+        existing.UpdatedAt = DateTime.UtcNow;
+        await _userRepo.UpdateAsync(existing);
+
+        // Upsert OAuth link so GitHubRepoService can retrieve the token
+        await UpsertOAuthLinkAsync(existing.Id, profile);
+
+        return existing;
+    }
+
+    private async Task UpsertOAuthLinkAsync(Guid userId, GitHubUserProfile profile)
+    {
+        var provider = await _oauthProviderRepo.GetByNameAsync("github");
+        if (provider is null) return; // Provider not seeded yet — skip gracefully
+
+        var encryptedToken = _encryption.Encrypt(profile.AccessToken);
+        var providerUserId = profile.Id.ToString();
+
+        var existing = await _oauthLinkRepo.GetByProviderUserIdAsync(provider.Id, providerUserId);
         if (existing is not null)
         {
-            // Update GitHub-owned fields; preserve admin-set first_name/last_name
-            existing.GitHubUsername = profile.Login;
-            existing.Email ??= profile.Email;
-            existing.AvatarUrl = profile.AvatarUrl;
-            existing.GitHubAccessToken = encryptedToken;
-            existing.UpdatedAt = DateTime.UtcNow;
-            await _userRepo.UpdateAsync(existing);
-            return existing;
+            await _oauthLinkRepo.UpdateAccessTokenAsync(existing.Id, encryptedToken);
         }
-
-        // New user (not pre-onboarded): parse name from GitHub profile
-        var (firstName, lastName) = ParseName(profile.Name ?? profile.Login);
-
-        var newUser = new User
+        else
         {
-            Id = Guid.NewGuid(),
-            GitHubId = profile.Id,
-            GitHubUsername = profile.Login,
-            FirstName = firstName,
-            LastName = lastName,
-            Email = profile.Email,
-            AvatarUrl = profile.AvatarUrl,
-            GitHubAccessToken = encryptedToken,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var created = await _userRepo.CreateAsync(newUser);
-
-        var userRole = await _roleRepo.GetByNameAsync("user");
-        if (userRole is not null)
-            await _userRepo.AssignSystemRoleAsync(created.Id, userRole.Id, created.Id);
-
-        await _audit.LogAsync(created.Id, null, "user.registered", "user", new { githubUsername = profile.Login });
-
-        return created;
+            await _oauthLinkRepo.CreateAsync(new UserOAuthLink
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                ProviderId = provider.Id,
+                ProviderUserId = providerUserId,
+                ProviderUsername = profile.Login,
+                ProviderEmail = profile.Email,
+                ProviderAvatarUrl = profile.AvatarUrl,
+                AccessTokenEncrypted = encryptedToken,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
     }
 
     public async Task<UserProfileResponse> GetProfileAsync(Guid userId)
@@ -204,6 +216,9 @@ public sealed class UserService : IUserService
         await _audit.LogAsync(requestingUserId, null, "role.revoked", "user_roles",
             new { targetUserId = request.UserId, roleName = request.RoleName });
     }
+
+    public async Task<IEnumerable<string>> GetSystemRoleNamesAsync(Guid userId) =>
+        await _userRepo.GetSystemRolesAsync(userId);
 
     public async Task<IEnumerable<Role>> GetSystemRolesAsync() =>
         await _roleRepo.GetAllAsync();

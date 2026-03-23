@@ -9,8 +9,8 @@ public interface IJwtService
     // Feature 1 — scoped proxy token (direct DB access)
     string GenerateToken(GenerateTokenRequest request);
 
-    // Feature 6 — short-lived app JWT with apps[] claims
-    string GenerateAppToken(User user, IEnumerable<IamAppClaims> apps);
+    // Feature 6 — short-lived app JWT with apps[] claims + system_roles
+    string GenerateAppToken(User user, IEnumerable<IamAppClaims> apps, IEnumerable<string> systemRoles);
 
     // Feature 6 — long-lived API token (Claude Code, CI/CD, integrations)
     string GenerateApiToken(User user, Guid? appId, string appSlug, string? schema, string[] permissions, int expiryDays, out DateTime expiresAt);

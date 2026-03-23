@@ -1,0 +1,171 @@
+# FlatPlanet Platform API — Claude Code Context
+
+## What This Is
+
+A .NET 10 backend API that acts as a secure proxy for Supabase (PostgreSQL), GitHub, and Claude Code integrations. It provides centralized IAM, GitHub repository operations, database migrations, and API token management for the FlatPlanet Hub platform.
+
+---
+
+## Solution Structure
+
+```
+FlatPlanet.Platform.API/           # Presentation — controllers, middleware, filters
+FlatPlanet.Platform.Application/   # Business logic — services, interfaces, DTOs
+FlatPlanet.Platform.Domain/        # Entities, enums, value objects (no dependencies)
+FlatPlanet.Platform.Infrastructure/# Repositories, external services, config
+FlatPlanet.Platform.Tests/         # xUnit unit tests
+db/migrations/                     # SQL migration files (run manually against Supabase)
+Features/                          # Feature specs — read these before implementing anything
+```
+
+---
+
+## Architecture Rules
+
+**Layer flow:** Controller → Application Service → Domain → Infrastructure
+
+- No business logic in controllers — controllers only parse input, call a service, return a response
+- No direct DB access from the API layer
+- Do not skip layers
+- Dependencies are one-directional — outer layers depend on inner layers, never the reverse
+- All cross-layer contracts defined as interfaces in Application layer
+
+**Repository rules:**
+- One repository interface per aggregate (e.g. `IUserRepository`)
+- No generic repositories
+- Only simple domain queries and persistence methods
+- Complex read queries → separate query service
+
+---
+
+## Tech Stack
+
+- .NET 10 + ASP.NET Core Web API
+- PostgreSQL via Supabase (connection pooler port 6543)
+- Dapper for all DB access — no EF Core
+- Octokit.net for GitHub API
+- JWT Bearer authentication (HS256, own issuer)
+- xUnit + Moq for tests
+
+---
+
+## Database
+
+- Schema prefix: `platform.` (e.g. `platform.users`, `platform.projects`)
+- All queries use parameterized Dapper — never string-concatenated SQL
+- Migrations live in `db/migrations/` — run them manually, the API does not auto-migrate
+- Connection via `IDbConnectionFactory` — never instantiate `NpgsqlConnection` directly
+- Schema name in tokens is validated via `SqlValidationHelper.IsValidSchemaName` before use
+
+---
+
+## Authentication Model
+
+Two token types — both signed with the same JWT secret:
+
+| Type | Claim `token_type` | Lifetime | Used by |
+|---|---|---|---|
+| App JWT | `app` | 60 min | Frontend / browser |
+| API token | `api_token` | configurable days | Claude Code / CI/CD |
+
+App JWT carries an `apps[]` JSON claim with per-app roles and permissions.
+API token carries flat `schema`, `permissions`, and `app_slug` claims.
+
+`ProjectScopeMiddleware` reads the token type and routes accordingly.
+
+---
+
+## IAM / Authorization
+
+Feature 6 defines the full IAM model. Key tables:
+
+- `platform.users` — identity
+- `platform.user_oauth_links` — OAuth tokens per provider (GitHub token lives here, NOT on `users`)
+- `platform.user_app_roles` — access grants (no row = no access)
+- `platform.roles` + `platform.permissions` + `platform.role_permissions` — RBAC
+- `platform.api_tokens` — long-lived service tokens (stored as SHA-256 hash)
+- `platform.refresh_tokens` — rotation tokens (stored as SHA-256 hash)
+- `platform.sessions` — active session tracking
+- `platform.auth_audit_log` — immutable append-only audit log
+
+Platform-level roles (seeded): `platform_owner`, `app_admin`
+Admin access checked via `user_app_roles`, not via a JWT claim.
+
+---
+
+## Feature Specs
+
+All features are documented in `Features/`. **Read the relevant spec before implementing or modifying anything in that area.**
+
+| Feature | File | Status |
+|---|---|---|
+| F1 | Feature 1 - Supabase Proxy API | Done |
+| F2 | Feature 2 - GitHub OAuth + JWT Token Issuance | Done (has known issues) |
+| F3 | Feature 3 - Admin User Onboarding & Access Management | Done (has known issues) |
+| F4 | Feature 4 - GitHub Repository Operations via Proxy API | Done (has known issues) |
+| F5 | Feature 5 - CLAUDE.md — Local Project Context File | Done |
+| F6 | Feature 6 - Flat Planet IAM — Centralized Identity & Access Management | Done (has known issues) |
+
+---
+
+## Known Issues (current branch: feature/github-repo-operations)
+
+These are open and must be fixed before merging:
+
+1. **GitHub token stored on `users` table** — spec requires `user_oauth_links.access_token_encrypted`. `GitHubRepoService` reads `user.GitHubAccessToken`; should read from `IUserOAuthLinkRepository`.
+
+2. **Self-registration allowed** — `UpsertFromGitHubAsync` creates new users on first OAuth login. Feature 2 spec requires rejecting unknown users (admin must onboard first via Feature 3).
+
+3. **No project membership / permission check in `RepoController`** — all endpoints only have `[Authorize]`. Must check `user_app_roles` and map permissions: `read` / `write` / `ddl` / `manage_members`.
+
+4. **`system_roles` JWT claim never emitted** — `RequireSystemRoleAttribute` and the `platform_admin` bypass in `RequirePermissionAttribute` depend on it. Claim is not in spec and not generated. Admin endpoints are permanently inaccessible.
+
+5. **OAuth callback redirect broken** — `GitHubCallback` builds `frontendUrl = "#access_token=..."` with no base URL. `FrontendCallbackUrl` from config is never used. Tokens end up on the API server's URL.
+
+6. **Session record not created on login** — `sessions` table exists but `AuthController` never inserts into it.
+
+---
+
+## Coding Conventions
+
+- `async`/`await` for all I/O
+- Depend on interfaces, not implementations — always inject via constructor
+- Method length: keep under ~50 lines; extract if growing
+- DTO naming: `CreateXRequest`, `UpdateXRequest`, `XResponse`, `XDto`
+- Domain entity naming: pure noun (`User`, `Project`) — no `Entity` suffix unless conflict
+- Tests: `MethodName_ShouldDoX_WhenCondition` naming, Arrange/Act/Assert layout
+- Commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+
+---
+
+## Encryption
+
+- AES-256 via `EncryptionHelper` (Infrastructure layer)
+- Tokens/secrets hashed with SHA-256 via `EncryptionHelper.HashToken` — never store raw
+- Encryption key configured via `Encryption:Key` in appsettings (min 32 bytes)
+- Use `IEncryptionService` (not `EncryptionHelper` directly) from Application layer
+
+---
+
+## Running the Project
+
+```bash
+dotnet build FlatPlanet.Platform.slnx
+dotnet run --project FlatPlanet.Platform.API
+dotnet test FlatPlanet.Platform.Tests
+```
+
+API runs on `https://localhost:7xxx` (see `launchSettings.json`).
+Scalar API docs available at `/scalar` in Development.
+
+---
+
+## What NOT to Do
+
+- Do not add business logic to controllers
+- Do not call repositories directly from the API layer
+- Do not concatenate user input into SQL strings
+- Do not store raw tokens or secrets — always hash or encrypt
+- Do not commit `CLAUDE.md` files generated for end users (they are gitignored)
+- Do not use EF Core — this project uses Dapper throughout
+- Do not create a generic `IRepository<T>` — use aggregate-specific repositories

@@ -8,6 +8,7 @@ using FlatPlanet.Platform.Domain.Entities;
 using FlatPlanet.Platform.Infrastructure.Common.Helpers;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
+using JwtSettings = FlatPlanet.Platform.Infrastructure.Configuration.JwtSettings;
 
 namespace FlatPlanet.Platform.API.Controllers;
 
@@ -18,26 +19,32 @@ public sealed class AuthController : ApiControllerBase
     private readonly IUserService _userService;
     private readonly IJwtService _jwtService;
     private readonly IRefreshTokenRepository _refreshTokenRepo;
+    private readonly ISessionRepository _sessionRepo;
     private readonly IAuditService _audit;
     private readonly IClaudeConfigService _claudeConfigService;
     private readonly JwtSettings _jwtSettings;
+    private readonly GitHubSettings _gitHubSettings;
 
     public AuthController(
         IGitHubOAuthService gitHub,
         IUserService userService,
         IJwtService jwtService,
         IRefreshTokenRepository refreshTokenRepo,
+        ISessionRepository sessionRepo,
         IAuditService audit,
         IClaudeConfigService claudeConfigService,
-        IOptions<JwtSettings> jwtSettings)
+        IOptions<JwtSettings> jwtSettings,
+        IOptions<GitHubSettings> gitHubSettings)
     {
         _gitHub = gitHub;
         _userService = userService;
         _jwtService = jwtService;
         _refreshTokenRepo = refreshTokenRepo;
+        _sessionRepo = sessionRepo;
         _audit = audit;
         _claudeConfigService = claudeConfigService;
         _jwtSettings = jwtSettings.Value;
+        _gitHubSettings = gitHubSettings.Value;
     }
 
     [HttpGet("github")]
@@ -74,7 +81,7 @@ public sealed class AuthController : ApiControllerBase
         await _audit.LogAsync(user.Id, null, "login_success",
             ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
-        var frontendUrl = $"#access_token={Uri.EscapeDataString(appToken)}&refresh_token={Uri.EscapeDataString(refreshToken)}";
+        var frontendUrl = $"{_gitHubSettings.FrontendCallbackUrl}#access_token={Uri.EscapeDataString(appToken)}&refresh_token={Uri.EscapeDataString(refreshToken)}";
         return Redirect(frontendUrl);
     }
 
@@ -110,7 +117,11 @@ public sealed class AuthController : ApiControllerBase
         if (stored is not null)
             await _refreshTokenRepo.RevokeAsync(stored.Id);
 
-        await _audit.LogAsync(GetUserId(), null, "logout");
+        var userId = GetUserId();
+        if (userId.HasValue)
+            await _sessionRepo.EndAllForUserAsync(userId.Value, "logout");
+
+        await _audit.LogAsync(userId, null, "logout");
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -140,9 +151,10 @@ public sealed class AuthController : ApiControllerBase
 
     private async Task<(string appToken, string refreshToken)> IssueTokenPairAsync(User user)
     {
-        // Feature 6: build IAM app claims from user_app_roles
+        // Feature 6: build IAM app claims + system roles
         var appClaims = await _userService.GetIamAppClaimsAsync(user.Id);
-        var appToken = _jwtService.GenerateAppToken(user, appClaims);
+        var systemRoles = await _userService.GetSystemRoleNamesAsync(user.Id);
+        var appToken = _jwtService.GenerateAppToken(user, appClaims, systemRoles);
 
         var rawRefresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         await _refreshTokenRepo.CreateAsync(new RefreshToken
@@ -153,6 +165,19 @@ public sealed class AuthController : ApiControllerBase
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
             Revoked = false,
             CreatedAt = DateTime.UtcNow
+        });
+
+        // Create session record
+        await _sessionRepo.CreateAsync(new Session
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = HttpContext.Request.Headers.UserAgent.ToString(),
+            StartedAt = DateTime.UtcNow,
+            LastActiveAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
+            IsActive = true
         });
 
         return (appToken, rawRefresh);

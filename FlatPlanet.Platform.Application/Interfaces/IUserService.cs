@@ -10,6 +10,7 @@ public interface IUserService
     Task<UserProfileResponse> GetProfileAsync(Guid userId);
     Task<IEnumerable<UserProjectSummaryDto>> GetUserProjectsForTokenAsync(Guid userId);
     Task<IEnumerable<IamAppClaims>> GetIamAppClaimsAsync(Guid userId);
+    Task<IEnumerable<string>> GetSystemRoleNamesAsync(Guid userId);
     Task AssignSystemRoleAsync(Guid requestingUserId, RoleAssignRequest request);
     Task RevokeSystemRoleAsync(Guid requestingUserId, RoleRevokeRequest request);
     Task<IEnumerable<Domain.Entities.Role>> GetSystemRolesAsync();
