@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="FlatPlanet.Platform.API/FlatPlanet.Platform.API.csproj" />
+  <Project Path="FlatPlanet.Platform.Application/FlatPlanet.Platform.Application.csproj" />
+  <Project Path="FlatPlanet.Platform.Domain/FlatPlanet.Platform.Domain.csproj" />
+  <Project Path="FlatPlanet.Platform.Infrastructure/FlatPlanet.Platform.Infrastructure.csproj" />
+  <Project Path="FlatPlanet.Platform.Tests/FlatPlanet.Platform.Tests.csproj" />
+</Solution>

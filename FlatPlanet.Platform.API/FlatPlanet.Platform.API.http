@@ -1,0 +1,6 @@
+@FlatPlanet.Platform.API_HostAddress = http://localhost:5207
+
+GET {{FlatPlanet.Platform.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

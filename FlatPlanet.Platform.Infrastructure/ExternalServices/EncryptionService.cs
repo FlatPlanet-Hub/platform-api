@@ -1,0 +1,25 @@
+using Microsoft.Extensions.Options;
+using FlatPlanet.Platform.Application.Interfaces;
+using FlatPlanet.Platform.Infrastructure.Common.Helpers;
+using FlatPlanet.Platform.Infrastructure.Configuration;
+
+namespace FlatPlanet.Platform.Infrastructure.ExternalServices;
+
+public sealed class EncryptionService : IEncryptionService
+{
+    private readonly string _key;
+
+    public EncryptionService(IOptions<EncryptionSettings> settings)
+    {
+        var key = settings.Value.Key;
+        if (System.Text.Encoding.UTF8.GetByteCount(key) < 32)
+            throw new InvalidOperationException(
+                "Encryption:Key must be at least 32 UTF-8 bytes. " +
+                "Set a strong key (32+ characters) in appsettings or environment variables.");
+        _key = key;
+    }
+
+    public string Encrypt(string plaintext) => EncryptionHelper.Encrypt(plaintext, _key);
+    public string Decrypt(string ciphertext) => EncryptionHelper.Decrypt(ciphertext, _key);
+    public string HashToken(string token) => EncryptionHelper.HashToken(token);
+}
