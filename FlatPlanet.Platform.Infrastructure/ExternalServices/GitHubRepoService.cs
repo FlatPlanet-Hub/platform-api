@@ -48,35 +48,26 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var client = GetServiceClient();
         var (owner, repoName) = ParseRepo(project.GitHubRepo);
 
-        var files = new List<(string path, string content)>
+        var files = new[]
         {
             ("DATA_DICTIONARY.md", "# Data Dictionary\n\n_No tables yet. This file is auto-updated when tables are created._\n"),
             (".gitignore", BuildGitignore())
         };
 
-        var newTree = new NewTree();
         foreach (var (path, content) in files)
         {
-            var blob = await client.Git.Blob.Create(owner, repoName, new NewBlob
+            try
             {
-                Content = content,
-                Encoding = EncodingType.Utf8
-            });
-            newTree.Tree.Add(new NewTreeItem
+                // File already exists — skip (already seeded)
+                await client.Repository.Content.GetAllContents(owner, repoName, path);
+            }
+            catch (NotFoundException)
             {
-                Path = path,
-                Mode = "100644",
-                Type = TreeType.Blob,
-                Sha = blob.Sha
-            });
+                // File does not exist — create it
+                await client.Repository.Content.CreateFile(owner, repoName, path,
+                    new CreateFileRequest($"chore: seed {path}", content, "main"));
+            }
         }
-
-        var tree = await client.Git.Tree.Create(owner, repoName, newTree);
-        var commit = await client.Git.Commit.Create(owner, repoName,
-            new NewCommit("chore: initial project scaffold", tree.Sha, Array.Empty<string>()));
-
-        await client.Git.Reference.Create(owner, repoName,
-            new NewReference("refs/heads/main", commit.Sha));
     }
 
     public async Task SyncDataDictionaryAsync(Guid projectId, string schema)
