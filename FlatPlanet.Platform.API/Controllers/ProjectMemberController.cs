@@ -24,7 +24,7 @@ public sealed class ProjectMemberController : ApiControllerBase
         return Ok(ApiResponse<IEnumerable<ProjectMemberResponse>>.Ok(members));
     }
 
-    [HttpPost("invite")]
+    [HttpPost]
     public async Task<ActionResult<ApiResponse<object?>>> Invite(Guid projectId, [FromBody] InviteUserRequest request)
     {
         var userId = GetUserId();
