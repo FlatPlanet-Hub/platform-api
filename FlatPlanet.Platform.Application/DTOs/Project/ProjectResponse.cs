@@ -19,18 +19,10 @@ public sealed class ProjectResponse
 public sealed class ProjectMemberResponse
 {
     public Guid UserId { get; init; }
-    public string GitHubUsername { get; init; } = string.Empty;
-    public string Email { get; init; } = string.Empty;
+    public string? GitHubUsername { get; init; }
     public string FullName { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
     public string RoleName { get; init; } = string.Empty;
     public string[] Permissions { get; init; } = [];
     public DateTime GrantedAt { get; init; }
-}
-
-public sealed class ProjectRoleResponse
-{
-    public Guid Id { get; init; }
-    public string Name { get; init; } = string.Empty;
-    public string[] Permissions { get; init; } = [];
-    public bool IsDefault { get; init; }
 }

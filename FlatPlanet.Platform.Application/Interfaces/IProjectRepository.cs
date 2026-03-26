@@ -5,8 +5,8 @@ namespace FlatPlanet.Platform.Application.Interfaces;
 public interface IProjectRepository
 {
     Task<Project?> GetByIdAsync(Guid id);
-    Task<IEnumerable<Project>> GetByUserIdAsync(Guid userId);
-    Task<Project?> GetByAppSlugAsync(string slug);
+    Task<Project?> GetByAppIdAsync(Guid appId);
+    Task<IEnumerable<Project>> GetByAppIdsAsync(IEnumerable<Guid> appIds);
     Task<Project> CreateAsync(Project project);
     Task UpdateAsync(Project project);
 }
