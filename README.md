@@ -1,26 +1,31 @@
 # FlatPlanet Platform API
 
-A secure .NET 10 Web API that serves as the backend platform for **FlatPlanet Hub**. Provides authenticated access to Supabase Postgres, GitHub repository management, role-based access control, and Claude Code integration — all through scoped JWT tokens with per-schema isolation.
+A .NET 10 Web API that acts as a secure proxy for Supabase (PostgreSQL) and GitHub. It manages projects, project members, Claude Code API token generation, and database migrations for the FlatPlanet Hub platform.
+
+**Authentication and identity are owned by the standalone `flatplanet-security-platform` service.** This API validates Security Platform JWTs and delegates all role and permission checks to it via HTTP.
 
 ```
-Frontend / Claude Code → FlatPlanet Platform API (JWT auth) → Supabase Postgres / GitHub
+Frontend            →  FlatPlanet Platform API  →  Supabase Postgres
+Claude Code (MCP)   →  FlatPlanet Platform API  →  Supabase Postgres
+FlatPlanet Platform API  →  Security Platform   →  IAM / RBAC
+FlatPlanet Platform API  →  GitHub              →  Repo seeding / collaborators
 ```
 
 ---
 
 ## Architecture
 
-Clean Architecture with a modular monolith layout:
+Clean Architecture — 4 layers, strict one-directional dependencies:
 
 ```
-FlatPlanet.Platform.API           → Controllers, Middleware, Program.cs
-FlatPlanet.Platform.Application   → Interfaces, DTOs, Validation helpers
-FlatPlanet.Platform.Domain        → Entities, Value objects
-FlatPlanet.Platform.Infrastructure → DbProxyService (Npgsql + Dapper), JwtService
-FlatPlanet.Platform.Tests         → xUnit unit tests
+FlatPlanet.Platform.API            → Controllers, Middleware, Program.cs
+FlatPlanet.Platform.Application    → Services, Interfaces, DTOs
+FlatPlanet.Platform.Domain         → Entities, Value Objects (no dependencies)
+FlatPlanet.Platform.Infrastructure → Repositories, external service clients
+FlatPlanet.Platform.Tests          → xUnit unit tests
 ```
 
-Each user/project is isolated to their own Postgres schema (e.g. `project_abc123`). The JWT token carries the allowed schema, project ID, and permissions. Every query is scoped server-side before hitting the database.
+Each project is isolated to its own Postgres schema (e.g. `project_acme_crm`). The API token carries the allowed schema and permissions — every query is scoped server-side before hitting the database.
 
 ---
 
@@ -30,37 +35,43 @@ Each user/project is isolated to their own Postgres schema (e.g. `project_abc123
 |---|---|
 | Runtime | .NET 10 |
 | Framework | ASP.NET Core Web API |
-| Database access | Npgsql + Dapper |
-| Auth | JWT Bearer (`Microsoft.AspNetCore.Authentication.JwtBearer`) |
-| API Docs | Scalar (built-in .NET 10 OpenAPI) |
-| Tests | xUnit |
+| Database access | Npgsql + Dapper (no EF Core) |
+| GitHub | Octokit.NET v14 |
+| Auth | JWT Bearer — tokens issued by `flatplanet-security-platform` |
+| API Docs | Scalar (development only, at `/scalar`) |
+| Tests | xUnit + Moq |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - .NET 10 SDK
-- A Supabase project (connection pooler on port 6543)
+- A Supabase project (use connection pooler, port 6543)
+- A running instance of `flatplanet-security-platform`
 
 ### Configuration
 
-Edit `FlatPlanet.Platform.API/appsettings.json`:
+Edit `FlatPlanet.Platform.API/appsettings.json` or supply via environment variables:
 
 ```json
 {
   "Jwt": {
-    "Issuer": "your-platform",
-    "Audience": "claude-mcp",
-    "SecretKey": "CHANGE_ME_MIN_32_CHARACTERS_LONG!!",
-    "ExpiryMinutes": 60
+    "Issuer": "flatplanet-security",
+    "Audience": "flatplanet-apps",
+    "SecretKey": "MUST_MATCH_SECURITY_PLATFORM_SECRET_MIN_32_CHARS"
   },
-  "Supabase": {
-    "Host": "aws-0-us-east-1.pooler.supabase.com",
-    "Port": 6543,
-    "Database": "postgres",
-    "AdminUser": "postgres.YOUR_PROJECT_REF",
-    "AdminPassword": "YOUR_SUPABASE_DB_PASSWORD"
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=...;Port=6543;Database=postgres;Username=...;Password=...;SSL Mode=Require"
+  },
+  "SecurityPlatform": {
+    "BaseUrl": "https://<security-platform-host>",
+    "ServiceToken": "<service-to-service-token>"
+  },
+  "GitHub": {
+    "ServiceToken": "ghp_...",
+    "OrgName": "FlatPlanet-Hub"
   },
   "Cors": {
     "AllowedOrigins": ["https://your-frontend.com"]
@@ -77,164 +88,99 @@ dotnet restore
 dotnet run --project FlatPlanet.Platform.API
 ```
 
-API docs available at `https://localhost:{port}/scalar/v1` (development only).
-
-Health check: `GET /health`
+API docs: `https://localhost:{port}/scalar` (development only)
 
 ---
 
-## API Reference
+## API Surface
 
-### Authentication Flow
+Full endpoint reference with request/response payloads: [`docs/api-reference.md`](docs/api-reference.md)
 
-All endpoints (except `/api/token/generate` and `/health`) require a `Bearer` JWT in the `Authorization` header.
-
-```
-Authorization: Bearer <token>
-```
-
----
-
-### Token
+### Auth
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/token/generate` | Issue a scoped JWT for a user + project |
+| `GET` | `/api/auth/me` | Current user identity from JWT claims |
 
-**Request:**
-```json
-{
-  "userId": "user-123",
-  "projectId": "proj-abc",
-  "schema": "project_abc",
-  "permissions": "read,write,ddl"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": "<jwt-token>",
-  "rowsAffected": null,
-  "error": null
-}
-```
-
-**JWT Claims:**
-| Claim | Description |
-|---|---|
-| `sub` | User ID |
-| `project_id` | Project identifier |
-| `schema` | Postgres schema name (must start with `project_`) |
-| `permissions` | Comma-separated: `read`, `write`, `ddl` |
-
----
-
-### Schema (read-only, requires JWT)
-
-| Method | Endpoint | Permission | Description |
-|---|---|---|---|
-| `GET` | `/api/schema/tables` | any | List all tables in user's schema |
-| `GET` | `/api/schema/columns?table={name}` | any | Get columns (all or per table) |
-| `GET` | `/api/schema/relationships` | any | Get foreign key relationships |
-| `GET` | `/api/schema/full` | any | Full data dictionary (tables + columns + relationships) |
-
----
-
-### Queries
-
-| Method | Endpoint | Permission | Description |
-|---|---|---|---|
-| `POST` | `/api/query/read` | `read` | Execute a SELECT query |
-| `POST` | `/api/query/write` | `write` | Execute INSERT / UPDATE / DELETE |
-
-**Read request:**
-```json
-{
-  "sql": "SELECT * FROM customers WHERE created_at > @since LIMIT @limit",
-  "parameters": { "since": "2025-01-01", "limit": 50 }
-}
-```
-
-**Write request:**
-```json
-{
-  "sql": "INSERT INTO customers (name, email) VALUES (@name, @email)",
-  "parameters": { "name": "Jane", "email": "jane@example.com" }
-}
-```
-
----
-
-### Migrations / DDL (requires `ddl` permission)
+### API Tokens
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/migration/create-schema` | Initialize the project schema |
-| `POST` | `/api/migration/create-table` | Create a new table |
-| `PUT` | `/api/migration/alter-table` | Add / drop / rename columns |
-| `DELETE` | `/api/migration/drop-table?table={name}` | Drop a table |
+| `POST` | `/api/auth/api-tokens` | Create scoped API token |
+| `GET` | `/api/auth/api-tokens` | List active tokens |
+| `DELETE` | `/api/auth/api-tokens/{tokenId}` | Revoke token |
 
-**Create table request:**
-```json
-{
-  "tableName": "customers",
-  "columns": [
-    { "name": "id", "type": "uuid", "isPrimaryKey": true, "default": "gen_random_uuid()" },
-    { "name": "name", "type": "text", "nullable": false },
-    { "name": "email", "type": "text", "nullable": false },
-    { "name": "created_at", "type": "timestamptz", "nullable": true, "default": "now()" }
-  ],
-  "enableRls": true
-}
-```
+### Projects
 
-**Alter table request:**
-```json
-{
-  "tableName": "customers",
-  "operations": [
-    { "type": "AddColumn", "columnName": "phone", "dataType": "text", "nullable": true },
-    { "type": "DropColumn", "columnName": "old_field" },
-    { "type": "RenameColumn", "columnName": "name", "newColumnName": "full_name" }
-  ]
-}
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/projects` | List projects the user has access to |
+| `POST` | `/api/projects` | Create project |
+| `GET` | `/api/projects/{id}` | Get project |
+| `PUT` | `/api/projects/{id}` | Update project |
+| `DELETE` | `/api/projects/{id}` | Deactivate project |
 
-Supported `AlterOperationType` values: `AddColumn`, `DropColumn`, `RenameColumn`, `SetNotNull`, `DropNotNull`.
+### Project Members
 
----
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/projects/{id}/members` | List members |
+| `POST` | `/api/projects/{id}/members` | Add member |
+| `PUT` | `/api/projects/{id}/members/{userId}/role` | Change member role |
+| `DELETE` | `/api/projects/{id}/members/{userId}` | Remove member |
 
-### Standard Response Format
+### Claude Config
 
-All endpoints return the same envelope:
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/projects/{id}/claude-config` | Generate CLAUDE.md + 30-day API token |
+| `POST` | `/api/projects/{id}/claude-config/regenerate` | Revoke and regenerate token |
+| `DELETE` | `/api/projects/{id}/claude-config` | Revoke token |
 
-```json
-{
-  "success": true,
-  "data": [...],
-  "rowsAffected": null,
-  "error": null
-}
-```
+### DB Proxy — requires API Token
+
+| Method | Endpoint | Permission | Description |
+|---|---|---|---|
+| `GET` | `/api/projects/{id}/schema/tables` | `read` | List tables |
+| `GET` | `/api/projects/{id}/schema/columns` | `read` | Get columns |
+| `GET` | `/api/projects/{id}/schema/relationships` | `read` | Get relationships |
+| `GET` | `/api/projects/{id}/schema/full` | `read` | Full schema |
+| `POST` | `/api/projects/{id}/migration/create-schema` | `ddl` | Initialize schema |
+| `POST` | `/api/projects/{id}/migration/create-table` | `ddl` | Create table |
+| `PUT` | `/api/projects/{id}/migration/alter-table` | `ddl` | Alter table |
+| `DELETE` | `/api/projects/{id}/migration/drop-table` | `ddl` | Drop table |
+| `POST` | `/api/projects/{id}/query/read` | `read` | Execute SELECT |
+| `POST` | `/api/projects/{id}/query/write` | `write` | Execute INSERT / UPDATE / DELETE |
 
 ---
 
-## Security
+## Authentication Model
+
+Two token types accepted, both validated against the same JWT secret:
+
+| Token | Issued by | Used for | Lifetime |
+|---|---|---|---|
+| Security Platform JWT | `flatplanet-security-platform` | Frontend → HubApi | 60 min |
+| HubApi API Token | HubApi `/claude-config` or `/api/auth/api-tokens` | Claude Code → DB Proxy | 30 days |
+
+`ProjectScopeMiddleware` activates project-scope extraction only when the route contains a `{projectId}` segment and the token has `token_type = "api_token"`. All other requests pass through unconditionally.
+
+---
+
+## Security Controls
 
 | Control | Implementation |
 |---|---|
 | Schema isolation | `SET search_path` executed before every query |
 | Schema name validation | Must match `^project_[a-z][a-z0-9_]{2,62}$` |
-| Identifier validation | Table/column names validated against `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$` |
-| Read query blocking | Blocks `DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE, GRANT, REVOKE` |
-| Write query blocking | Blocks DDL keywords: `DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE` |
-| Permission enforcement | JWT `permissions` claim checked per endpoint |
-| Parameterized queries | All user values go through Dapper parameterization |
-| Credentials | Supabase credentials are server-side only — never exposed |
-| Rate limiting | 100 requests/min per user (fixed window) |
+| Identifier validation | Table/column names validated against allowlist before DDL |
+| Read query blocking | Blocks DML + DDL keywords: `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE` |
+| Write query blocking | Blocks DDL keywords only |
+| Permission enforcement | Token `permissions` claim checked per endpoint |
+| Parameterized queries | All user values go through Dapper parameterization — no string-concatenated SQL |
+| Token storage | API tokens stored as SHA-256 hash — raw value never persisted |
 | SSL | Npgsql connects to Supabase with SSL required |
+| Rate limiting | 100 requests/min per user (fixed window) |
 
 ---
 
@@ -244,7 +190,22 @@ All endpoints return the same envelope:
 dotnet test FlatPlanet.Platform.Tests
 ```
 
-47 unit tests covering schema name validation, identifier validation, read query blocking, and write query blocking.
+76 unit tests covering SQL validation, service logic, and repository behavior.
+
+---
+
+## Database Migrations
+
+Migrations live in `db/migrations/`. Run them manually against Supabase — the API does not auto-migrate.
+
+HubApi owns two tables:
+
+| Table | Purpose |
+|---|---|
+| `platform.projects` | Project registry |
+| `platform.api_tokens` | Claude Code API tokens (stored as SHA-256 hash) |
+
+Everything else (users, roles, sessions, audit) lives in the Security Platform.
 
 ---
 
@@ -252,11 +213,11 @@ dotnet test FlatPlanet.Platform.Tests
 
 | Branch | Purpose |
 |---|---|
-| `main` | Production |
-| `develop` | Integration |
-| `feature/<name>` | New features |
+| `main` | Production releases |
+| `develop` | Integration — features merge here first |
+| `feature/<name>` | Individual features, branched from `develop` |
 
-Commit convention: `feat:`, `fix:`, `refactor:`
+Commit convention: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `test:`
 
 ---
 

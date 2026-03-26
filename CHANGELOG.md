@@ -5,6 +5,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [0.8.1] — 2026-03-27
+
+### Docs
+- **Rewrote `docs/api-reference.md`** — complete frontend integration reference reflecting the current v0.8.0 API surface after the Security Platform migration
+  - Added API Tokens section (`POST/GET/DELETE /api/auth/api-tokens`) — previously undocumented
+  - Added `POST /migration/create-schema` endpoint — previously missing from the reference
+  - Corrected `ColumnDefinition` payload shape: fields are `name`, `type`, `nullable`, `isPrimaryKey`, `default` (prior doc incorrectly used `columnName`, `dataType`, `defaultValue`)
+  - Corrected all endpoint response codes from `204` to `200` to match actual controller behavior
+  - Removed stale sections: GitHub OAuth flow, admin endpoints, legacy IAM tables — all now owned by `flatplanet-security-platform`
+  - Added realistic request/response examples for every endpoint
+  - Added `mcpConfig` shape to API token creation response
+  - Added Security Platform dependency callouts (`502` behavior) and known limitation notes
+
+---
+
 ## [0.5.0] — 2026-03-23
 > Branch: `feature/github-repo-operations`
 

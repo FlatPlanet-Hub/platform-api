@@ -1,306 +1,181 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Base URL:** `https://localhost:7xxx` (see `launchSettings.json` for exact port)
+**Version:** 0.8.0
+**Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
+**Changelog:** [CHANGELOG.md](../CHANGELOG.md)
 
 ---
 
 ## Table of Contents
 
 1. [Authentication Overview](#authentication-overview)
-2. [GitHub OAuth Flow](#github-oauth-flow)
-3. [Token Refresh](#token-refresh)
-4. [Logout](#logout)
-5. [Current User Profile](#current-user-profile)
-6. [API Tokens](#api-tokens)
-7. [Authorization Check](#authorization-check)
-8. [Schema Inspection](#schema-inspection)
-9. [Query — Read](#query--read)
-10. [Query — Write](#query--write)
-11. [Migrations](#migrations)
-12. [GitHub Repo Operations](#github-repo-operations)
-13. [Projects](#projects)
-14. [Project Members](#project-members)
-15. [Apps](#apps)
-16. [Companies](#companies)
-17. [Resources](#resources)
-18. [Admin — Users](#admin--users)
-19. [Admin — Roles & Permissions](#admin--roles--permissions)
-20. [Audit Log](#audit-log)
-21. [Compliance](#compliance)
-22. [Claude Config](#claude-config)
-23. [Error Reference](#error-reference)
+2. [Auth — Current User](#auth--current-user)
+3. [API Tokens](#api-tokens)
+   - [Create Token](#create-token)
+   - [List Tokens](#list-tokens)
+   - [Revoke Token](#revoke-token-1)
+4. [Projects](#projects)
+   - [List Projects](#list-projects)
+   - [Create Project](#create-project)
+   - [Get Project](#get-project)
+   - [Update Project](#update-project)
+   - [Deactivate Project](#deactivate-project)
+5. [Project Members](#project-members)
+   - [List Members](#list-members)
+   - [Add Member](#add-member)
+   - [Update Member Role](#update-member-role)
+   - [Remove Member](#remove-member)
+6. [Claude Config](#claude-config)
+   - [Get Config](#get-config)
+   - [Regenerate Token](#regenerate-token)
+   - [Revoke Token](#revoke-token-2)
+7. [DB Proxy — Schema](#db-proxy--schema)
+   - [List Tables](#list-tables)
+   - [Get Columns](#get-columns)
+   - [Get Relationships](#get-relationships)
+   - [Full Schema](#full-schema)
+8. [DB Proxy — Migrations](#db-proxy--migrations)
+   - [Create Schema](#create-schema)
+   - [Create Table](#create-table)
+   - [Alter Table](#alter-table)
+   - [Drop Table](#drop-table)
+9. [DB Proxy — Queries](#db-proxy--queries)
+   - [Read Query](#read-query)
+   - [Write Query](#write-query)
+10. [Standard Response Envelope](#standard-response-envelope)
+11. [Error Reference](#error-reference)
 
 ---
 
 ## Authentication Overview
 
-All protected endpoints require:
+All protected endpoints require a JWT in the Authorization header:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-Two token types exist. The `token_type` JWT claim determines routing behavior:
+HubApi accepts two token types. The `token_type` JWT claim determines routing:
 
-| Token Type | `token_type` claim | Lifetime | Used by |
-|---|---|---|---|
-| App JWT | `app` | 60 min | Frontend / browser |
-| API Token | `api_token` | Configurable (default 30 days) | Claude Code / CI/CD |
+| Token Type | `token_type` claim | Lifetime | Issued by | Used for |
+|---|---|---|---|---|
+| Security Platform JWT | *(none)* | 60 min | `flatplanet-security-platform` | Frontend → HubApi |
+| HubApi API Token | `api_token` | 30 days | HubApi `/claude-config` or `/api/auth/api-tokens` | Claude Code → DB Proxy |
 
-**App JWT** — obtained from the GitHub OAuth flow. Carries an `apps[]` claim with per-app roles and permissions.
+**Security Platform JWT** — obtained from the Security Platform login flow (not HubApi). Carries claims: `sub`, `email`, `full_name`, `company_id`, `session_id`, and roles.
 
-**API Token** — created via `POST /api/auth/api-tokens`. Carries flat `schema`, `permissions`, and `app_slug` claims. Required for Schema, Query, and Migration endpoints.
+**HubApi API Token** — generated via `GET /api/projects/{id}/claude-config` or `POST /api/auth/api-tokens`. Carries flat `schema`, `permissions`, and `app_slug` claims. Required for all Schema, Migration, and Query endpoints.
 
-> **Note:** The middleware returns `403` before reaching any controller if an API token has an invalid or missing schema claim.
-
----
-
-## GitHub OAuth Flow
-
-### Step 1 — Initiate OAuth
-
-### `GET /api/auth/oauth/github`
-
-Redirects the user to GitHub's OAuth authorization page.
-
-No request body. No auth required.
-
-**Behavior:**
-- Sets an `oauth_state` cookie (HttpOnly, used for CSRF validation on callback)
-- Redirects the browser to GitHub
-
-**Trigger this by navigating the browser window directly** — do not call via `fetch`.
+> **Critical:** The DB Proxy endpoints (`/schema`, `/migration`, `/query`) only accept API Tokens — Security Platform JWTs are rejected with `403`. The `ProjectScopeMiddleware` blocks requests before they reach the controller if the token is missing or has an invalid schema claim.
 
 ---
 
-### Step 2 — OAuth Callback
+## Auth — Current User
 
-### `GET /api/auth/oauth/github/callback`
+### `GET /api/auth/me`
 
-GitHub redirects here after the user authorizes. Handled server-side.
+Returns the identity of the currently authenticated user from JWT claims. Makes no database call.
 
-| Query Param | Type | Description |
-|---|---|---|
-| `code` | string | Authorization code from GitHub |
-| `state` | string | Must match the `oauth_state` cookie value |
+**Auth required:** Security Platform JWT
 
-**Behavior on success:**
-- Validates `state` cookie
-- Exchanges `code` for a GitHub access token
-- Looks up the user by GitHub ID — **self-registration is not allowed**; user must already exist in `platform.users`
-- Creates a session and issues a token pair
-- Redirects to `{FrontendCallbackUrl}?token=<access_token>&refresh=<refresh_token>`
-
-**Errors:**
-
-| Condition | Result |
-|---|---|
-| `state` mismatch | `400` redirect with error |
-| GitHub user not in platform | `403` redirect with error |
-| GitHub API failure | `500` redirect with error |
-
-> **Note:** Store the `access_token` and `refresh_token` from the redirect URL query params. The access token expires in 60 minutes — implement silent refresh using the refresh token.
+**Request:** No body.
 
 ---
 
-## Token Refresh
-
-### `POST /api/auth/refresh`
-
-Rotates the refresh token and issues a new access/refresh token pair.
-
-No auth header required.
-
-### Request
-
-```json
-{
-  "refreshToken": "eyJhbGc..."
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `refreshToken` | string | Yes | The current valid refresh token |
-
-### Success Response — `200`
-
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expiresAt": "2026-03-23T15:30:00Z"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `401` | Refresh token not found or already revoked |
-| `409` | Refresh token reuse detected (token already consumed) |
-| `500` | DB failure during rotation |
-
-### Notes
-
-- The old refresh token is **immediately revoked** on use — do not call this twice in parallel for the same token
-- On `409`, the session may be compromised; redirect the user to login
-- `expiresAt` is the access token expiry, not the refresh token expiry
-
----
-
-## Logout
-
-### `POST /api/auth/logout`
-
-Revokes the refresh token and ends the current session.
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-### Request
-
-```json
-{
-  "refreshToken": "eyJhbGc..."
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `refreshToken` | string | Yes | The active refresh token for this session |
-
-### Success Response — `200`
+**Success Response `200`:**
 
 ```json
 {
   "success": true,
-  "data": null,
-  "error": null
+  "data": {
+    "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "email": "alice@flatplanet.io",
+    "fullName": "Alice Martin",
+    "companyId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "canCreateProject": true
+  }
 }
 ```
 
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `401` | Missing or expired access token |
-| `404` | Refresh token not found |
-
-### Notes
-
-- Only the session associated with the provided refresh token is ended — other active sessions for the same user are unaffected
-- After logout, discard both tokens from storage
-
----
-
-## Current User Profile
-
-### `GET /api/auth/me`
-
-Returns the authenticated user's profile, system roles, and project memberships.
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-No request body.
-
-### Success Response — `200`
-
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "gitHubUsername": "john-doe",
-  "firstName": "John",
-  "lastName": "Doe",
-  "email": "john@example.com",
-  "avatarUrl": "https://avatars.githubusercontent.com/u/12345678",
-  "systemRoles": ["platform_owner"],
-  "projects": [
-    {
-      "projectId": "a1b2c3d4-0000-0000-0000-000000000001",
-      "name": "Billing Service",
-      "schema": "project_billing",
-      "projectRole": "admin",
-      "permissions": ["read", "write", "ddl"]
-    }
-  ]
-}
-```
-
-### Fields — Response
+**Fields:**
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | Guid | Platform user ID |
-| `gitHubUsername` | string | GitHub login handle |
-| `firstName` | string? | Optional display name |
-| `lastName` | string? | Optional display name |
-| `email` | string? | GitHub email (may be null if private) |
-| `avatarUrl` | string? | GitHub avatar URL |
-| `systemRoles` | string[] | Platform-level roles (`platform_owner`, `app_admin`) |
-| `projects[].projectId` | Guid | Project ID |
-| `projects[].schema` | string | Schema name used in API token claims |
-| `projects[].permissions` | string[] | `read`, `write`, `ddl`, `manage_members` |
+| `userId` | UUID | User's unique identifier (`sub` claim) |
+| `email` | string | User's email address |
+| `fullName` | string | Display name from `full_name` claim |
+| `companyId` | string or null | Company UUID the user belongs to |
+| `canCreateProject` | bool | `true` when the JWT carries a `create_project` permission |
 
-### Error Responses
+**Error Responses:**
 
-| Status | Condition |
+| Code | Reason |
 |---|---|
-| `401` | Missing or expired access token |
-| `404` | User record deleted after token was issued |
+| `401` | Missing or invalid JWT |
+
+**Notes:**
+- This endpoint reflects JWT claims at issuance time. If the user's roles changed after login, they must re-authenticate to see the update.
+- `canCreateProject` is derived from the `permissions` claim — not a DB lookup.
 
 ---
 
 ## API Tokens
 
-Long-lived tokens for use with Claude Code or CI/CD. Carry schema + permission claims.
+General-purpose long-lived API tokens. These are separate from the project-scoped tokens generated by `/claude-config`. Use these for CI/CD pipelines, integrations, or any tool that needs scoped DB access without going through the full Claude Config flow.
 
-### Create API Token
+**Auth required for all:** Security Platform JWT
+
+---
+
+### Create Token
 
 ### `POST /api/auth/api-tokens`
 
-**Requires:** `Authorization: Bearer <access_token>`
+Issues a new API token with specified permissions.
 
-### Request
+**Request:**
 
 ```json
 {
-  "name": "billing-ci-token",
-  "appId": "a1b2c3d4-0000-0000-0000-000000000099",
+  "name": "CI pipeline token",
+  "appId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "permissions": ["read", "write"],
   "expiryDays": 30
 }
 ```
 
-### Fields
+**Fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | Yes | Human-readable label |
-| `appId` | Guid? | No | Scopes token to a specific app |
-| `permissions` | string[] | Yes | `read`, `write`, `ddl`, `manage_members` |
-| `expiryDays` | int | No | Days until expiry. Default: `30` |
+| `name` | string | Yes | Human-readable label for this token |
+| `appId` | UUID | No | Scope the token to a specific app/project. If omitted, the token is not app-scoped. |
+| `permissions` | string[] | Yes | One or more of: `read`, `write`, `ddl` |
+| `expiryDays` | int | No | Lifetime in days. Default: `30`. |
 
-### Success Response — `200`
+---
+
+**Success Response `200`:**
 
 ```json
 {
-  "tokenId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "name": "billing-ci-token",
-  "permissions": ["read", "write"],
-  "expiresAt": "2026-04-22T10:00:00Z",
-  "mcpConfig": {
-    "mcpServers": {
-      "flatplanet": {
-        "command": "npx",
-        "args": ["-y", "@flatplanet/mcp-server"],
-        "env": {
-          "FLATPLANET_TOKEN": "eyJhbGc..."
+  "success": true,
+  "data": {
+    "tokenId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    "token": "eyJhbGci...",
+    "name": "CI pipeline token",
+    "permissions": ["read", "write"],
+    "expiresAt": "2026-04-26T14:00:00Z",
+    "mcpConfig": {
+      "mcpServers": {
+        "flatplanet-db": {
+          "command": "npx",
+          "args": ["-y", "@flatplanet/mcp-server"],
+          "env": {
+            "FLATPLANET_API_URL": "https://api.flatplanet.io",
+            "FLATPLANET_API_TOKEN": "eyJhbGci..."
+          }
         }
       }
     }
@@ -308,1208 +183,224 @@ Long-lived tokens for use with Claude Code or CI/CD. Carry schema + permission c
 }
 ```
 
-> **Note:** `token` is returned **once only** — it is stored as a SHA-256 hash server-side. Save it immediately.
+**Fields:**
 
-### Error Responses
-
-| Status | Condition |
+| Field | Description |
 |---|---|
-| `401` | Not authenticated |
-| `400` | Invalid permissions value |
+| `tokenId` | UUID — use this for revocation |
+| `token` | The raw JWT. Store securely — this is the only time it is returned in plaintext. |
+| `mcpConfig` | Ready-to-paste MCP configuration block for Claude Desktop / Claude Code. |
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Missing `name`, empty `permissions`, or invalid `expiryDays` |
+| `401` | Missing or invalid JWT |
 
 ---
 
-### List API Tokens
+### List Tokens
 
 ### `GET /api/auth/api-tokens`
 
-**Requires:** `Authorization: Bearer <access_token>`
+Returns all active (non-revoked, non-expired) tokens belonging to the authenticated user.
 
-### Success Response — `200`
-
-```json
-[
-  {
-    "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-    "name": "billing-ci-token",
-    "appId": "a1b2c3d4-0000-0000-0000-000000000099",
-    "permissions": ["read", "write"],
-    "expiresAt": "2026-04-22T10:00:00Z",
-    "lastUsedAt": "2026-03-23T08:00:00Z",
-    "createdAt": "2026-03-23T10:00:00Z"
-  }
-]
-```
-
-The raw token value is **never returned** in list responses.
+**Request:** No body.
 
 ---
 
-### Revoke API Token
-
-### `DELETE /api/auth/api-tokens/{tokenId}`
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-| Path Param | Type | Description |
-|---|---|---|
-| `tokenId` | Guid | Token to revoke |
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `404` | Token not found or already revoked |
-| `403` | Token belongs to a different user |
-
----
-
-## Authorization Check
-
-### `POST /api/authorize`
-
-Checks whether a user is allowed to perform an action on a resource. Use this for server-side access decisions in other services.
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-### Request
-
-```json
-{
-  "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "appSlug": "billing-app",
-  "resourceIdentifier": "invoices/inv_00291",
-  "requiredPermission": "write"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `userId` | Guid | Yes | User to check |
-| `appSlug` | string | Yes | App slug the resource belongs to |
-| `resourceIdentifier` | string | Yes | Resource identifier string |
-| `requiredPermission` | string? | No | Specific permission to check (`read`, `write`, etc.) |
-
-### Success Response — `200`
-
-```json
-{
-  "allowed": true,
-  "roles": ["app_admin"],
-  "permissions": ["read", "write"],
-  "policies": {
-    "data_region": "eu-west-1"
-  },
-  "mfaRequired": false
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `401` | Not authenticated |
-| `404` | User or app not found |
-
----
-
-## Schema Inspection
-
-All schema endpoints require an **API token** with `read` permission. The schema is derived from the token's `schema` claim.
-
-**Requires:** `Authorization: Bearer <api_token>`
-
----
-
-### Get All Tables
-
-### `GET /api/schema/tables`
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "tableName": "invoices",
-    "tableType": "BASE TABLE"
-  },
-  {
-    "tableName": "invoice_items",
-    "tableType": "BASE TABLE"
-  }
-]
-```
-
----
-
-### Get Columns
-
-### `GET /api/schema/columns`
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `table` | string | No | Filter by table name. Omit for all columns. |
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "tableName": "invoices",
-    "columnName": "id",
-    "dataType": "uuid",
-    "isNullable": false,
-    "columnDefault": "gen_random_uuid()",
-    "ordinalPosition": 1
-  },
-  {
-    "tableName": "invoices",
-    "columnName": "amount",
-    "dataType": "numeric",
-    "isNullable": false,
-    "columnDefault": null,
-    "ordinalPosition": 3
-  }
-]
-```
-
----
-
-### Get Relationships
-
-### `GET /api/schema/relationships`
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "constraintName": "invoice_items_invoice_id_fkey",
-    "tableName": "invoice_items",
-    "columnName": "invoice_id",
-    "foreignTableName": "invoices",
-    "foreignColumnName": "id"
-  }
-]
-```
-
----
-
-### Get Full Schema
-
-### `GET /api/schema/full`
-
-Returns tables, columns, and relationships in a single call.
-
-### Success Response — `200`
-
-```json
-{
-  "tables": [...],
-  "columns": [...],
-  "relationships": [...]
-}
-```
-
-### Error Responses (all schema endpoints)
-
-| Status | Condition |
-|---|---|
-| `401` | Missing or invalid token |
-| `403` | Token type is `app` (must use API token), or schema claim missing/invalid |
-
----
-
-## Query — Read
-
-### `POST /api/query/read`
-
-Executes a parameterized SELECT against the project's schema.
-
-**Requires:** `Authorization: Bearer <api_token>` with `read` permission.
-
-### Request
-
-```json
-{
-  "sql": "SELECT id, amount, status FROM invoices WHERE status = @status LIMIT 50",
-  "parameters": {
-    "status": "pending"
-  }
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `sql` | string | Yes | SELECT query. Must be validated SQL — no DDL or DML |
-| `parameters` | object? | No | Named parameters. Use `@paramName` in SQL |
-
-### Success Response — `200`
+**Success Response `200`:**
 
 ```json
 {
   "success": true,
   "data": [
     {
-      "id": "inv_00291",
-      "amount": 1500.00,
-      "status": "pending"
-    }
-  ],
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `400` | SQL fails validation (non-SELECT detected, invalid syntax) |
-| `403` | Token lacks `read` permission |
-| `500` | DB error (bad table name, type mismatch, etc.) |
-
-### Notes
-
-- Only SELECT queries are accepted — INSERT/UPDATE/DELETE/DDL will be rejected at validation
-- The schema is injected from the API token claim — do not prefix table names with the schema
-- Read queries are **not** audit-logged
-
----
-
-## Query — Write
-
-### `POST /api/query/write`
-
-Executes a parameterized INSERT, UPDATE, or DELETE.
-
-**Requires:** `Authorization: Bearer <api_token>` with `write` permission.
-
-### Request
-
-```json
-{
-  "sql": "UPDATE invoices SET status = @status WHERE id = @id",
-  "parameters": {
-    "status": "paid",
-    "id": "inv_00291"
-  }
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `sql` | string | Yes | DML query (INSERT / UPDATE / DELETE) |
-| `parameters` | object? | No | Named parameters |
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "rowsAffected": 1,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `400` | SQL fails validation |
-| `403` | Token lacks `write` permission |
-| `409` | Unique constraint violation |
-| `500` | DB error |
-
-### Notes
-
-- Every write query is audit-logged with event `query.write`
-- `rowsAffected` will be `0` if the WHERE clause matched nothing — this is a `200`, not an error
-
----
-
-## Migrations
-
-All migration endpoints require an **API token** with `ddl` permission. Every operation is audit-logged.
-
-**Requires:** `Authorization: Bearer <api_token>` with `ddl` permission.
-
----
-
-### Create Schema
-
-### `POST /api/migration/create-schema`
-
-Creates the schema defined in the API token's `schema` claim if it does not exist.
-
-No request body.
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
----
-
-### Create Table
-
-### `POST /api/migration/create-table`
-
-### Request
-
-```json
-{
-  "tableName": "invoices",
-  "columns": [
-    {
-      "name": "id",
-      "dataType": "uuid",
-      "nullable": false,
-      "defaultValue": "gen_random_uuid()",
-      "isPrimaryKey": true
-    },
-    {
-      "name": "amount",
-      "dataType": "numeric(10,2)",
-      "nullable": false
-    },
-    {
-      "name": "created_at",
-      "dataType": "timestamptz",
-      "nullable": false,
-      "defaultValue": "now()"
-    }
-  ],
-  "enableRls": true
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `tableName` | string | Yes | Table name (no schema prefix) |
-| `columns` | array | Yes | Column definitions |
-| `columns[].name` | string | Yes | Column name |
-| `columns[].dataType` | string | Yes | PostgreSQL data type |
-| `columns[].nullable` | bool | Yes | Whether column accepts NULL |
-| `columns[].defaultValue` | string? | No | SQL default expression |
-| `columns[].isPrimaryKey` | bool? | No | Marks column as PK |
-| `enableRls` | bool | Yes | Enables Row Level Security on the table |
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `400` | Invalid table name or column definition |
-| `409` | Table already exists |
-| `403` | Token lacks `ddl` permission |
-
----
-
-### Alter Table
-
-### `PUT /api/migration/alter-table`
-
-### Request
-
-```json
-{
-  "tableName": "invoices",
-  "operations": [
-    {
-      "type": "AddColumn",
-      "columnName": "paid_at",
-      "dataType": "timestamptz",
-      "nullable": true
-    },
-    {
-      "type": "RenameColumn",
-      "columnName": "amount",
-      "newColumnName": "total_amount"
+      "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "name": "CI pipeline token",
+      "appId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "permissions": ["read", "write"],
+      "expiresAt": "2026-04-26T14:00:00Z",
+      "lastUsedAt": "2026-03-26T12:00:00Z",
+      "createdAt": "2026-03-26T14:00:00Z"
     }
   ]
 }
 ```
 
-### Fields — `operations[]`
+**Fields:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | string | Yes | `AddColumn`, `DropColumn`, `RenameColumn`, `SetNotNull`, `DropNotNull` |
-| `columnName` | string | Yes | Target column |
-| `newColumnName` | string? | For `RenameColumn` | New name |
-| `dataType` | string? | For `AddColumn` | PostgreSQL data type |
-| `nullable` | bool? | For `AddColumn` | Whether column is nullable |
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `404` | Table not found in schema |
-| `409` | Column already exists (on AddColumn) |
-| `400` | DropNotNull on a column with no NOT NULL constraint |
-
----
-
-### Drop Table
-
-### `DELETE /api/migration/drop-table`
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `table` | string | Yes | Table name to drop |
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `404` | Table not found |
-| `409` | Other tables have FK references to this table |
-
----
-
-## GitHub Repo Operations
-
-All repo endpoints require an **App JWT** and are scoped to a project.
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-**Base path:** `/api/projects/{projectId}/repo`
-
-The authenticated user must have the appropriate project permission for each operation (see per-endpoint notes).
-
----
-
-### Create Repository
-
-### `POST /api/projects/{projectId}/repo`
-
-Requires `manage_members` permission on project.
-
-### Request
-
-```json
-{
-  "repoName": "billing-service",
-  "description": "Billing microservice for FlatPlanet",
-  "isPrivate": true,
-  "org": "flatplanet-io"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `repoName` | string | Yes | Repository name (no spaces) |
-| `description` | string? | No | Repo description |
-| `isPrivate` | bool | No | Default: `true` |
-| `org` | string? | No | GitHub org name. Null = personal account |
-
-### Success Response — `200`
-
-```json
-{
-  "repoFullName": "flatplanet-io/billing-service",
-  "repoUrl": "https://github.com/flatplanet-io/billing-service",
-  "cloneUrl": "https://github.com/flatplanet-io/billing-service.git",
-  "defaultBranch": "main"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `403` | User lacks GitHub OAuth token or project permission |
-| `409` | Repository already exists |
-| `500` | GitHub API error |
-
----
-
-### Get Repository
-
-### `GET /api/projects/{projectId}/repo`
-
-Requires `read` permission.
-
-### Success Response — `200`
-
-```json
-{
-  "repoFullName": "flatplanet-io/billing-service",
-  "repoUrl": "https://github.com/flatplanet-io/billing-service",
-  "cloneUrl": "https://github.com/flatplanet-io/billing-service.git",
-  "defaultBranch": "main"
-}
-```
-
----
-
-### Delete Repository
-
-### `DELETE /api/projects/{projectId}/repo`
-
-Requires `manage_members` permission. This is **irreversible**.
-
-**Required Header:**
-
-```
-X-Confirm-Delete: true
-```
-
-### Success Response — `200`
-
-```json
-{
-  "success": true,
-  "data": null,
-  "error": null
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `400` | `X-Confirm-Delete` header missing or not `true` |
-| `403` | Lacks permission |
-| `404` | Repo not found |
-
----
-
-### Get File or Directory
-
-### `GET /api/projects/{projectId}/repo/files`
-
-Requires `read` permission.
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | No | File or directory path. Omit for root. |
-| `ref_` | string | No | Branch, tag, or commit SHA. Default: repo default branch. |
-
-### Success Response — `200` (file)
-
-```json
-{
-  "type": "file",
-  "name": "README.md",
-  "path": "README.md",
-  "content": "# Billing Service\n...",
-  "sha": "abc123def456",
-  "size": 1024
-}
-```
-
-### Success Response — `200` (directory)
-
-```json
-{
-  "type": "dir",
-  "path": "src",
-  "items": [
-    {
-      "name": "index.ts",
-      "path": "src/index.ts",
-      "type": "file",
-      "size": 512
-    }
-  ]
-}
-```
-
----
-
-### Get Repository Tree
-
-### `GET /api/projects/{projectId}/repo/tree`
-
-Requires `read` permission. Returns the full file tree.
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `ref_` | string | No | Branch/tag/SHA. Default: default branch. |
-
-### Success Response — `200`
-
-```json
-{
-  "sha": "abc123",
-  "tree": [
-    {
-      "path": "src/index.ts",
-      "type": "blob",
-      "size": 512
-    },
-    {
-      "path": "src",
-      "type": "tree",
-      "size": null
-    }
-  ]
-}
-```
-
----
-
-### Create or Update File
-
-### `PUT /api/projects/{projectId}/repo/files`
-
-Requires `write` permission.
-
-### Request
-
-```json
-{
-  "path": "src/utils/helpers.ts",
-  "content": "export const add = (a: number, b: number) => a + b;\n",
-  "message": "feat: add helper utility",
-  "branch": "main",
-  "sha": null
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | Yes | File path in repo |
-| `content` | string | Yes | Full file content (UTF-8) |
-| `message` | string | Yes | Commit message |
-| `branch` | string | Yes | Target branch |
-| `sha` | string? | For updates | Current file SHA — required when updating an existing file |
-
-### Success Response — `200`
-
-```json
-{
-  "type": "file",
-  "name": "helpers.ts",
-  "path": "src/utils/helpers.ts",
-  "content": "export const add = ...",
-  "sha": "def456abc789",
-  "size": 52
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | Updating file but `sha` is missing or stale |
-| `404` | Branch not found |
-
-### Notes
-
-- Creating a new file: omit `sha`
-- Updating an existing file: get current `sha` from `GET /files`, include it here
-- Stale `sha` (file was updated by someone else) → `409`
-
----
-
-### Delete File
-
-### `DELETE /api/projects/{projectId}/repo/files`
-
-Requires `write` permission.
-
-### Request
-
-```json
-{
-  "path": "src/utils/helpers.ts",
-  "message": "chore: remove helpers file",
-  "branch": "main",
-  "sha": "def456abc789"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | Yes | File path |
-| `message` | string | Yes | Commit message |
-| `branch` | string | Yes | Branch |
-| `sha` | string | Yes | Current file SHA (from `GET /files`) |
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `404` | File not found |
-| `409` | SHA mismatch |
-
----
-
-### Create Commit (Multiple Files)
-
-### `POST /api/projects/{projectId}/repo/commits`
-
-Requires `write` permission. Creates a single commit with multiple file changes.
-
-### Request
-
-```json
-{
-  "message": "feat: add invoice module",
-  "branch": "feature/invoices",
-  "files": [
-    {
-      "path": "src/invoice.ts",
-      "action": "create",
-      "content": "export class Invoice {}"
-    },
-    {
-      "path": "src/legacy.ts",
-      "action": "delete",
-      "content": null
-    }
-  ]
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `message` | string | Yes | Commit message |
-| `branch` | string | Yes | Target branch |
-| `files` | array | Yes | Files to include in the commit |
-| `files[].path` | string | Yes | File path in repo |
-| `files[].action` | string | Yes | `create`, `update`, `delete` |
-| `files[].content` | string? | For `create`/`update` | File content. Omit for `delete`. |
-
-### Success Response — `200`
-
-```json
-{
-  "commitSha": "abc123def456789",
-  "commitUrl": "https://github.com/flatplanet-io/billing-service/commit/abc123",
-  "filesChanged": 2
-}
-```
-
----
-
-### List Commits
-
-### `GET /api/projects/{projectId}/repo/commits`
-
-Requires `read` permission.
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `branch` | string | No | Filter by branch. Default: default branch. |
-| `page` | int | No | Default: `1` |
-| `pageSize` | int | No | Default: `20` |
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "sha": "abc123",
-    "message": "feat: add invoice module",
-    "author": "john-doe",
-    "date": "2026-03-23T10:00:00+00:00"
-  }
-]
-```
-
----
-
-### List Branches
-
-### `GET /api/projects/{projectId}/repo/branches`
-
-Requires `read` permission.
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "name": "main",
-    "isDefault": true,
-    "sha": "abc123"
-  },
-  {
-    "name": "feature/invoices",
-    "isDefault": false,
-    "sha": "def456"
-  }
-]
-```
-
----
-
-### Create Branch
-
-### `POST /api/projects/{projectId}/repo/branches`
-
-Requires `write` permission.
-
-### Request
-
-```json
-{
-  "name": "feature/payments",
-  "fromBranch": "main"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | Yes | New branch name |
-| `fromBranch` | string | Yes | Source branch to branch from |
-
-### Success Response — `200`
-
-```json
-{
-  "name": "feature/payments",
-  "isDefault": false,
-  "sha": "abc123"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | Branch already exists |
-| `404` | Source branch not found |
-
----
-
-### Delete Branch
-
-### `DELETE /api/projects/{projectId}/repo/branches/{branchName}`
-
-Requires `write` permission.
-
-| Path Param | Type | Description |
+| Field | Type | Description |
 |---|---|---|
-| `branchName` | string | Branch to delete |
+| `id` | UUID | Token ID for revocation |
+| `name` | string | Label assigned at creation |
+| `appId` | UUID or null | App scope, if set at creation |
+| `permissions` | string[] | Permissions the token carries |
+| `expiresAt` | datetime | When the token expires |
+| `lastUsedAt` | datetime or null | Last time the token was used for a request |
+| `createdAt` | datetime | When the token was issued |
 
-### Error Responses
+**Error Responses:**
 
-| Status | Condition |
+| Code | Reason |
 |---|---|
-| `403` | Attempting to delete the default branch |
-| `404` | Branch not found |
+| `401` | Missing or invalid JWT |
+
+**Notes:**
+- The raw token value is **not** returned here — only metadata. Tokens cannot be recovered after creation.
 
 ---
 
-### Create Pull Request
+### Revoke Token 1
 
-### `POST /api/projects/{projectId}/repo/pulls`
+### `DELETE /api/auth/api-tokens/{tokenId}`
 
-Requires `write` permission.
+Immediately revokes an API token. Subsequent requests using this token will receive `401`.
 
-### Request
+**Path Parameters:**
 
-```json
-{
-  "title": "feat: add payment module",
-  "body": "Adds invoice creation and payment tracking.",
-  "head": "feature/payments",
-  "base": "main"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `title` | string | Yes | PR title |
-| `body` | string? | No | PR description (Markdown supported) |
-| `head` | string | Yes | Source branch |
-| `base` | string | Yes | Target branch |
-
-### Success Response — `200`
-
-```json
-{
-  "number": 42,
-  "title": "feat: add payment module",
-  "state": "open",
-  "head": "feature/payments",
-  "base": "main",
-  "url": "https://github.com/flatplanet-io/billing-service/pull/42",
-  "author": "john-doe",
-  "createdAt": "2026-03-23T10:00:00+00:00"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | PR already exists for this head/base combination |
-| `422` | No commits between head and base |
-
----
-
-### List Pull Requests
-
-### `GET /api/projects/{projectId}/repo/pulls`
-
-Requires `read` permission.
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `state` | string | No | `open`, `closed`, `all`. Default: `open` |
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "number": 42,
-    "title": "feat: add payment module",
-    "state": "open",
-    "head": "feature/payments",
-    "base": "main",
-    "url": "https://github.com/flatplanet-io/billing-service/pull/42",
-    "author": "john-doe",
-    "createdAt": "2026-03-23T10:00:00+00:00"
-  }
-]
-```
-
----
-
-### Get Pull Request
-
-### `GET /api/projects/{projectId}/repo/pulls/{prNumber}`
-
-Requires `read` permission.
-
-| Path Param | Type | Description |
+| Param | Type | Description |
 |---|---|---|
-| `prNumber` | int | PR number |
+| `tokenId` | UUID | ID of the token to revoke |
+
+**Request:** No body.
 
 ---
 
-### Merge Pull Request
-
-### `PUT /api/projects/{projectId}/repo/pulls/{prNumber}/merge`
-
-Requires `write` permission.
-
-### Request
+**Success Response `200`:**
 
 ```json
 {
-  "mergeMethod": "squash"
+  "success": true,
+  "data": null
 }
 ```
 
-### Fields
+**Error Responses:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `mergeMethod` | string | No | `merge`, `squash`, `rebase`. Default: `merge` |
-
-### Success Response — `200`
-
-```json
-{
-  "commitSha": "abc123def456",
-  "merged": true,
-  "message": "Pull request successfully merged"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
+| Code | Reason |
 |---|---|
-| `409` | Merge conflict — resolve manually |
-| `422` | PR is not mergeable (checks failed, draft PR, etc.) |
-| `404` | PR not found |
-
----
-
-### List Collaborators
-
-### `GET /api/projects/{projectId}/repo/collaborators`
-
-Requires `read` permission.
-
-### Success Response — `200`
-
-```json
-[
-  {
-    "gitHubUsername": "jane-smith",
-    "avatarUrl": "https://avatars.githubusercontent.com/u/87654321",
-    "permission": "push"
-  }
-]
-```
-
----
-
-### Invite Collaborator
-
-### `POST /api/projects/{projectId}/repo/collaborators`
-
-Requires `manage_members` permission.
-
-### Request
-
-```json
-{
-  "gitHubUsername": "jane-smith",
-  "permission": "push"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `gitHubUsername` | string | Yes | GitHub handle to invite |
-| `permission` | string | Yes | `pull` (read), `push` (write), `admin` |
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `404` | GitHub user not found |
-| `409` | User is already a collaborator |
-
----
-
-### Remove Collaborator
-
-### `DELETE /api/projects/{projectId}/repo/collaborators/{githubUsername}`
-
-Requires `manage_members` permission.
+| `401` | Missing or invalid JWT |
+| `403` | Token does not belong to the authenticated user |
+| `404` | Token not found or already revoked |
 
 ---
 
 ## Projects
 
-**Requires:** `Authorization: Bearer <access_token>`
+### List Projects
+
+### `GET /api/projects`
+
+Returns all projects the authenticated user has access to. Access is determined by the Security Platform — only projects where the user has a role are returned.
+
+**Auth required:** Security Platform JWT
+
+**Request:** No body, no query parameters.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "Acme CRM",
+      "description": "Customer relationship management system",
+      "schemaName": "project_acme_crm",
+      "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "appSlug": "acme-crm",
+      "roleName": "owner",
+      "gitHubRepo": "FlatPlanet-Hub/acme-crm",
+      "techStack": "React + .NET 10",
+      "isActive": true,
+      "createdAt": "2026-01-15T10:30:00Z",
+      "members": null
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `502` | Security Platform unreachable |
+
+**Notes:**
+- `members` is always `null` on list responses. Use `GET /api/projects/{id}/members` to fetch members.
+- Projects with `appSlug: null` are legacy entries created before the Security Platform migration. These have limited functionality.
+
+---
 
 ### Create Project
 
 ### `POST /api/projects`
 
-### Request
+Creates a new project. Provisions a Postgres schema, registers the app with the Security Platform, creates default roles and permissions (`owner`, `developer`, `viewer`), and seeds the GitHub repository with a `DATA_DICTIONARY.md` and `.gitignore`.
+
+**Auth required:** Security Platform JWT with `company_id` claim
+
+**Request:**
 
 ```json
 {
-  "name": "Billing Service",
-  "description": "Handles invoicing and payment processing"
+  "name": "Acme CRM",
+  "description": "Customer relationship management system",
+  "techStack": "React + .NET 10"
 }
 ```
 
-### Fields
+**Fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | Yes | Project display name |
-| `description` | string? | No | Optional description |
-
-### Success Response — `200`
-
-```json
-{
-  "id": "a1b2c3d4-0000-0000-0000-000000000001",
-  "name": "Billing Service",
-  "description": "Handles invoicing and payment processing",
-  "schemaName": "project_billing_service",
-  "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "gitHubRepo": null,
-  "isActive": true,
-  "createdAt": "2026-03-23T10:00:00Z",
-  "members": []
-}
-```
+| `name` | string | Yes | Project display name. Used to derive the schema name (`project_{slug}`) and app slug. |
+| `description` | string | No | Optional description |
+| `techStack` | string | No | Free-text tech stack. Included in the generated CLAUDE.md. |
 
 ---
 
-### List Projects
-
-### `GET /api/projects`
-
-Returns projects the authenticated user has access to.
-
-### Success Response — `200`
+**Success Response `201`:**
 
 ```json
-[
-  {
-    "id": "a1b2c3d4-0000-0000-0000-000000000001",
-    "name": "Billing Service",
-    "schemaName": "project_billing_service",
-    "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+{
+  "success": true,
+  "data": {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "name": "Acme CRM",
+    "description": "Customer relationship management system",
+    "schemaName": "project_acme_crm",
+    "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "appSlug": "acme-crm",
+    "roleName": "owner",
+    "gitHubRepo": null,
+    "techStack": "React + .NET 10",
     "isActive": true,
-    "createdAt": "2026-03-23T10:00:00Z"
+    "createdAt": "2026-03-26T14:00:00Z",
+    "members": null
   }
-]
+}
 ```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | `name` is missing, blank, or `company_id` claim is absent/invalid |
+| `401` | Missing or invalid JWT |
+| `409` | A project with the same slug already exists |
+| `502` | Security Platform unreachable during role provisioning |
+
+**Notes:**
+- Project creation makes ~19 sequential calls to the Security Platform to register the app, create permissions, create roles, and grant the creator the `owner` role. This may take 2–4 seconds.
+- GitHub repo seeding is **fire-and-forget** — a GitHub failure does not roll back the project.
+- `gitHubRepo` is `null` at creation. Set it via `PUT /api/projects/{id}`.
 
 ---
 
@@ -1517,9 +408,47 @@ Returns projects the authenticated user has access to.
 
 ### `GET /api/projects/{id}`
 
-### Success Response — `200`
+Returns a single project by ID.
 
-Full `ProjectResponse` object including `members[]`.
+**Auth required:** Security Platform JWT
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "name": "Acme CRM",
+    "description": "Customer relationship management system",
+    "schemaName": "project_acme_crm",
+    "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "appSlug": "acme-crm",
+    "roleName": "owner",
+    "gitHubRepo": "FlatPlanet-Hub/acme-crm",
+    "techStack": "React + .NET 10",
+    "isActive": true,
+    "createdAt": "2026-01-15T10:30:00Z",
+    "members": null
+  }
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | User does not have access to this project |
+| `404` | Project not found |
 
 ---
 
@@ -1527,94 +456,229 @@ Full `ProjectResponse` object including `members[]`.
 
 ### `PUT /api/projects/{id}`
 
-### Request
+Updates project metadata. Requires `manage_members` permission (checked via Security Platform).
+
+**Auth required:** Security Platform JWT with `manage_members` on this project
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:**
 
 ```json
 {
-  "name": "Billing V2",
-  "description": "Updated billing system",
-  "gitHubRepo": "flatplanet-io/billing-service"
+  "name": "Acme CRM v2",
+  "description": "Updated description",
+  "gitHubRepo": "FlatPlanet-Hub/acme-crm",
+  "techStack": "Next.js + .NET 10"
 }
 ```
 
-### Fields
+**Fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string? | No | New project name |
-| `description` | string? | No | New description |
-| `gitHubRepo` | string? | No | GitHub repo full name (org/repo) |
+| `name` | string | No | New display name |
+| `description` | string | No | New description |
+| `gitHubRepo` | string | No | GitHub repo in `org/repo-name` format |
+| `techStack` | string | No | Free-text tech stack description |
+
+All fields are optional. Only provided fields are updated.
 
 ---
 
-### Delete Project
+**Success Response `200`:** Returns updated `ProjectResponse` (same shape as [Get Project](#get-project)).
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Invalid input |
+| `401` | Missing or invalid JWT |
+| `403` | User lacks `manage_members` on this project |
+| `404` | Project not found |
+
+---
+
+### Deactivate Project
 
 ### `DELETE /api/projects/{id}`
 
-### Error Responses
+Soft-deactivates a project. Sets `isActive = false`. Requires `delete_project` permission (checked via Security Platform).
 
-| Status | Condition |
+**Auth required:** Security Platform JWT with `delete_project` on this project
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
 |---|---|
-| `403` | Not project owner or admin |
-| `409` | Project has active members |
+| `401` | Missing or invalid JWT |
+| `403` | User lacks `delete_project` on this project |
+| `404` | Project not found |
+
+**Notes:**
+- This is a soft delete only — `isActive` is set to `false`. Data is not removed.
+- Deactivated projects no longer appear in `GET /api/projects`.
+- Existing API tokens for this project remain valid until their natural expiry. Revoke them explicitly via `DELETE /api/projects/{id}/claude-config` first.
 
 ---
 
 ## Project Members
 
-**Base path:** `/api/projects/{projectId}/members`
-**Requires:** `Authorization: Bearer <access_token>`
-
 ### List Members
 
-### `GET /api/projects/{projectId}/members`
+### `GET /api/projects/{id}/members`
 
-### Success Response — `200`
+Returns all members of a project with their roles and permissions. Data is fetched from the Security Platform.
 
-```json
-[
-  {
-    "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "gitHubUsername": "john-doe",
-    "firstName": "John",
-    "lastName": "Doe",
-    "avatarUrl": "https://avatars.githubusercontent.com/u/12345678",
-    "roleName": "admin",
-    "permissions": ["read", "write", "ddl"],
-    "joinedAt": "2026-03-01T09:00:00Z"
-  }
-]
-```
+**Auth required:** Security Platform JWT
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
 
 ---
 
-### Invite Member
-
-### `POST /api/projects/{projectId}/members/invite`
-
-### Request
+**Success Response `200`:**
 
 ```json
 {
-  "gitHubUsername": "jane-smith",
-  "role": "developer"
+  "success": true,
+  "data": [
+    {
+      "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "githubUsername": null,
+      "fullName": "Alice Martin",
+      "email": "alice@flatplanet.io",
+      "roleName": "owner",
+      "permissions": ["read", "write", "ddl", "manage_members", "delete_project"],
+      "grantedAt": "2026-01-15T10:30:00Z"
+    },
+    {
+      "userId": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+      "githubUsername": "bob-dev",
+      "fullName": "Bob Chen",
+      "email": "bob@flatplanet.io",
+      "roleName": "developer",
+      "permissions": ["read", "write", "ddl"],
+      "grantedAt": "2026-02-01T09:00:00Z"
+    }
+  ]
 }
 ```
 
-### Error Responses
+**Error Responses:**
 
-| Status | Condition |
+| Code | Reason |
 |---|---|
-| `404` | GitHub username not found in platform |
-| `409` | User is already a project member |
+| `401` | Missing or invalid JWT |
+| `403` | User does not have access to this project |
+| `404` | Project not found |
+| `502` | Security Platform unreachable |
+
+---
+
+### Add Member
+
+### `POST /api/projects/{id}/members`
+
+Grants a user access to the project with a specified role. Optionally adds them as a GitHub repo collaborator.
+
+**Auth required:** Security Platform JWT with `manage_members` on this project
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:**
+
+```json
+{
+  "userId": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "role": "developer",
+  "githubUsername": "bob-dev"
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userId` | UUID | Yes | Security Platform user ID to grant access to |
+| `role` | string | Yes | One of: `owner`, `developer`, `viewer` |
+| `githubUsername` | string | No | If provided, adds the user as a GitHub repo collaborator. Role → GitHub permission: `owner` → `admin`, `developer` → `push`, `viewer` → `pull`. |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Invalid role name or missing required field |
+| `401` | Missing or invalid JWT |
+| `403` | Caller lacks `manage_members` on this project |
+| `404` | Project not found |
+| `409` | User already has a role on this project |
+| `502` | Security Platform unreachable |
+
+**Notes:**
+- GitHub collaborator invitation is fire-and-forget — a GitHub failure does not roll back the role grant.
+- `githubUsername` is only used at invite time. If skipped, there is no later endpoint to add the user to the GitHub repo without removing and re-adding the member.
+- The user must already exist in the Security Platform. This endpoint does not create users.
 
 ---
 
 ### Update Member Role
 
-### `PUT /api/projects/{projectId}/members/{targetUserId}/role`
+### `PUT /api/projects/{id}/members/{userId}/role`
 
-### Request
+Changes an existing member's role.
+
+**Auth required:** Security Platform JWT with `manage_members` on this project
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+| `userId` | UUID | The user whose role is being changed |
+
+**Request:**
 
 ```json
 {
@@ -1622,721 +686,785 @@ Full `ProjectResponse` object including `members[]`.
 }
 ```
 
----
-
-### Remove Member
-
-### `DELETE /api/projects/{projectId}/members/{targetUserId}`
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `403` | Cannot remove the project owner |
-
----
-
-## Apps
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-### Register App
-
-### `POST /api/apps`
-
-### Request
-
-```json
-{
-  "companyId": "b2c3d4e5-0000-0000-0000-000000000001",
-  "name": "FlatPlanet Hub",
-  "slug": "flatplanet-hub",
-  "baseUrl": "https://hub.flatplanet.io"
-}
-```
-
-### Fields
+**Fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `companyId` | Guid | Yes | Owning company |
-| `name` | string | Yes | Display name |
-| `slug` | string | Yes | URL-safe identifier. Must be unique. |
-| `baseUrl` | string | Yes | App's root URL |
-
-### Success Response — `200`
-
-```json
-{
-  "id": "c3d4e5f6-0000-0000-0000-000000000001",
-  "companyId": "b2c3d4e5-0000-0000-0000-000000000001",
-  "name": "FlatPlanet Hub",
-  "slug": "flatplanet-hub",
-  "baseUrl": "https://hub.flatplanet.io",
-  "schemaName": null,
-  "status": "active",
-  "createdAt": "2026-03-23T10:00:00Z"
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | Slug already taken |
-| `404` | Company not found |
+| `role` | string | Yes | New role: `owner`, `developer`, or `viewer` |
 
 ---
 
-### List / Get / Update App
-
-`GET /api/apps` — list all
-`GET /api/apps/{id}` — get one
-`PUT /api/apps/{id}` — update (`name`, `baseUrl`)
-
----
-
-### Update App Status
-
-### `PUT /api/apps/{id}/status`
-
-### Request
-
-```json
-{
-  "status": "inactive"
-}
-```
-
-Valid values: `active`, `inactive`
-
----
-
-### Manage App Users
-
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/api/apps/{appId}/users` | List users with access to app |
-| `POST` | `/api/apps/{appId}/users` | Grant user access |
-| `DELETE` | `/api/apps/{appId}/users/{userId}` | Revoke user access |
-| `PUT` | `/api/apps/{appId}/users/{userId}/role` | Change user role in app |
-
-### Grant User Access — Request
-
-```json
-{
-  "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "roleId": "d4e5f6a7-0000-0000-0000-000000000001",
-  "expiresAt": null
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `userId` | Guid | Yes | Platform user |
-| `roleId` | Guid | Yes | Role to assign |
-| `expiresAt` | DateTime? | No | Optional access expiry |
-
----
-
-## Companies
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-### Create Company
-
-### `POST /api/companies`
-
-### Request
-
-```json
-{
-  "name": "Acme Corp",
-  "slug": "acme-corp",
-  "countryCode": "US"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | Yes | Company name |
-| `slug` | string | Yes | URL-safe unique identifier |
-| `countryCode` | string | Yes | ISO 3166-1 alpha-2 (e.g., `US`, `BR`) |
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | Slug already taken |
-
-Other endpoints: `GET /api/companies`, `GET /api/companies/{id}`, `PUT /api/companies/{id}`, `PUT /api/companies/{id}/status`
-
----
-
-## Resources
-
-Resources are IAM-managed objects within an app.
-
-**Base path:** `/api/apps/{appId}/resources`
-**Requires:** `Authorization: Bearer <access_token>`
-
-### Create Resource
-
-### `POST /api/apps/{appId}/resources`
-
-### Request
-
-```json
-{
-  "resourceTypeId": "e5f6a7b8-0000-0000-0000-000000000001",
-  "name": "Invoice List",
-  "identifier": "invoices/list"
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `resourceTypeId` | Guid | Yes | From `GET /api/resource-types` |
-| `name` | string | Yes | Display name |
-| `identifier` | string | Yes | Unique string identifier used in authorization checks |
-
-### Success Response — `200`
-
-```json
-{
-  "id": "f6a7b8c9-0000-0000-0000-000000000001",
-  "appId": "c3d4e5f6-0000-0000-0000-000000000001",
-  "resourceTypeId": "e5f6a7b8-0000-0000-0000-000000000001",
-  "resourceTypeName": "Page",
-  "name": "Invoice List",
-  "identifier": "invoices/list",
-  "status": "active",
-  "createdAt": "2026-03-23T10:00:00Z"
-}
-```
-
-### Get Resource Types
-
-### `GET /api/resource-types`
-
-```json
-[
-  {
-    "id": "e5f6a7b8-0000-0000-0000-000000000001",
-    "name": "Page",
-    "description": "Frontend page or view"
-  }
-]
-```
-
----
-
-## Admin — Users
-
-**Requires:** `Authorization: Bearer <access_token>` + `manage_users` permission
-
-### List Users
-
-### `GET /api/admin/users`
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `search` | string | No | Filters by username or email |
-| `isActive` | bool | No | Filter by active status |
-| `roleId` | Guid | No | Filter by role |
-| `page` | int | No | Default: `1` |
-| `pageSize` | int | No | Default: `20` |
-
-### Success Response — `200`
-
-```json
-{
-  "users": [
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "gitHubId": 12345678,
-      "gitHubUsername": "john-doe",
-      "firstName": "John",
-      "lastName": "Doe",
-      "email": "john@example.com",
-      "avatarUrl": "https://avatars.githubusercontent.com/u/12345678",
-      "isActive": true,
-      "systemRoles": [{ "id": "...", "name": "platform_owner" }],
-      "projectMemberships": [
-        {
-          "projectId": "a1b2c3d4-...",
-          "projectName": "Billing Service",
-          "projectRole": "admin",
-          "permissions": ["read", "write", "ddl"]
-        }
-      ],
-      "createdAt": "2026-01-10T08:00:00Z"
-    }
-  ],
-  "totalCount": 42,
-  "page": 1,
-  "pageSize": 20
-}
-```
-
----
-
-### Create User
-
-### `POST /api/admin/users`
-
-### Request
-
-```json
-{
-  "gitHubId": 87654321,
-  "gitHubUsername": "jane-smith",
-  "avatarUrl": "https://avatars.githubusercontent.com/u/87654321",
-  "firstName": "Jane",
-  "lastName": "Smith",
-  "email": "jane@example.com",
-  "roleIds": ["d4e5f6a7-0000-0000-0000-000000000001"],
-  "projectAssignments": [
-    {
-      "projectId": "a1b2c3d4-0000-0000-0000-000000000001",
-      "projectRoleId": "e5f6a7b8-0000-0000-0000-000000000001"
-    }
-  ]
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `gitHubId` | long | Yes | GitHub numeric user ID |
-| `gitHubUsername` | string | Yes | GitHub login |
-| `avatarUrl` | string? | No | Profile avatar |
-| `firstName` | string? | No | Display name |
-| `lastName` | string? | No | Display name |
-| `email` | string? | No | Contact email |
-| `roleIds` | Guid[] | No | System roles to assign |
-| `projectAssignments` | array | No | Project memberships to assign at creation |
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | GitHub ID or username already registered |
-
----
-
-### Bulk Create Users
-
-### `POST /api/admin/users/bulk`
-
-### Request
-
-```json
-{
-  "users": [
-    { ...CreateAdminUserRequest... },
-    { ...CreateAdminUserRequest... }
-  ]
-}
-```
-
-Partial failures: the operation continues for valid entries. Invalid entries return errors in the response.
-
----
-
-### Update User
-
-### `PUT /api/admin/users/{userId}`
-
-### Request
-
-```json
-{
-  "firstName": "Jane",
-  "lastName": "Doe",
-  "email": "jane.doe@example.com",
-  "isActive": true
-}
-```
-
----
-
-### Update User Status
-
-### `PUT /api/admin/users/{userId}/status`
-
-### Request
-
-```json
-{
-  "status": "suspended"
-}
-```
-
-Valid values: `active`, `inactive`, `suspended`
-
-### Notes
-
-- Setting status to `inactive` or `suspended` **immediately revokes all active API tokens** for the user
-- Active sessions are also terminated
-
----
-
-### Update User System Roles
-
-### `PUT /api/admin/users/{userId}/roles`
-
-### Request
-
-```json
-{
-  "roleIds": [
-    "d4e5f6a7-0000-0000-0000-000000000001"
-  ]
-}
-```
-
-Replaces the user's current system roles entirely.
-
----
-
-### Update User App Role
-
-### `PUT /api/admin/users/{userId}/role`
-
-Updates the user's role within a specific app.
-
-### Request
-
-```json
-{
-  "appId": "c3d4e5f6-0000-0000-0000-000000000001",
-  "roleId": "d4e5f6a7-0000-0000-0000-000000000001"
-}
-```
-
----
-
-### Update User Project Role
-
-### `PUT /api/admin/users/{userId}/projects/{projectId}/role`
-
-### Request
-
-```json
-{
-  "projectRoleId": "e5f6a7b8-0000-0000-0000-000000000001"
-}
-```
-
----
-
-### Delete User
-
-### `DELETE /api/admin/users/{userId}`
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | User is a project owner — transfer ownership first |
-
----
-
-## Admin — Roles & Permissions
-
-**Requires:** `Authorization: Bearer <access_token>` + `manage_roles` permission
-
-### List Roles
-
-### `GET /api/admin/roles`
-
-```json
-[
-  {
-    "id": "d4e5f6a7-0000-0000-0000-000000000001",
-    "name": "developer",
-    "description": "Standard developer access",
-    "permissions": ["read", "write"],
-    "isSystem": false,
-    "isActive": true,
-    "createdAt": "2026-01-01T00:00:00Z"
-  }
-]
-```
-
----
-
-### Create Custom Role
-
-### `POST /api/admin/roles`
-
-### Request
-
-```json
-{
-  "name": "reviewer",
-  "description": "Read-only code review access",
-  "permissions": ["read"]
-}
-```
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `409` | Role name already exists |
-
----
-
-### Update Custom Role
-
-### `PUT /api/admin/roles/{roleId}`
-
-### Request
-
-```json
-{
-  "name": "senior-reviewer",
-  "description": "Updated description",
-  "permissions": ["read", "write"]
-}
-```
-
-All fields optional. System roles (`isSystem: true`) cannot be modified.
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `403` | Attempting to modify a system role |
-
----
-
-### Delete Custom Role
-
-### `DELETE /api/admin/roles/{roleId}`
-
-### Error Responses
-
-| Status | Condition |
-|---|---|
-| `403` | System role — cannot delete |
-| `409` | Role is currently assigned to users |
-
----
-
-### List Permissions
-
-### `GET /api/admin/permissions`
-
-```json
-[
-  {
-    "id": "a7b8c9d0-0000-0000-0000-000000000001",
-    "name": "read",
-    "description": "Read access to project schema and data",
-    "category": "data"
-  }
-]
-```
-
----
-
-## Audit Log
-
-### `GET /api/audit/auth`
-
-**Requires:** `Authorization: Bearer <access_token>`
-
-| Query Param | Type | Required | Description |
-|---|---|---|---|
-| `userId` | Guid | No | Filter by user |
-| `appId` | Guid | No | Filter by app |
-| `eventType` | string | No | e.g., `query.write`, `auth.login` |
-| `from` | DateTime | No | Start of time range (ISO 8601) |
-| `to` | DateTime | No | End of time range (ISO 8601) |
-| `page` | int | No | Default: `1` |
-| `pageSize` | int | No | Default: `50` |
-
-### Success Response — `200`
+**Success Response `200`:**
 
 ```json
 {
   "success": true,
-  "data": {
-    "logs": [...],
-    "totalCount": 150,
-    "page": 1,
-    "pageSize": 50
-  }
+  "data": null
 }
 ```
 
-### Notes
+**Error Responses:**
 
-- Audit log is **append-only** — records are never deleted
-- Logged events include: `auth.login`, `auth.logout`, `query.write`, `migration.create_table`, `migration.alter_table`, `migration.drop_table`
+| Code | Reason |
+|---|---|
+| `400` | Invalid role name |
+| `401` | Missing or invalid JWT |
+| `403` | Caller lacks `manage_members` |
+| `404` | Project not found, or user is not a member |
+| `502` | Security Platform unreachable |
+
+**Notes:**
+- GitHub repo permissions are **not updated** on role change (known limitation — the Security Platform does not expose GitHub identity). Updated permissions will be reflected on the next `claude-config` regeneration.
 
 ---
 
-## Compliance
+### Remove Member
 
-**Requires:** `Authorization: Bearer <access_token>`
+### `DELETE /api/projects/{id}/members/{userId}`
 
-### Record Consent
+Removes a user from the project, revokes their Security Platform role, and revokes any API tokens they held for this project.
 
-### `POST /api/compliance/consent`
+**Auth required:** Security Platform JWT with `manage_members` on this project
 
-### Request
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+| `userId` | UUID | The user to remove |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
 
 ```json
 {
-  "consentType": "terms_of_service",
-  "version": "2.1.0",
-  "consented": true
+  "success": true,
+  "data": null
 }
 ```
 
-### Fields
+**Error Responses:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `consentType` | string | Yes | Consent category (e.g., `terms_of_service`, `privacy_policy`) |
-| `version` | string | Yes | Version of the document consented to |
-| `consented` | bool | Yes | `true` = granted, `false` = withdrawn |
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | Caller lacks `manage_members` |
+| `404` | Project not found, or user is not a member |
+| `502` | Security Platform unreachable |
 
----
-
-### Get Consent History
-
-### `GET /api/compliance/consent/{userId}`
-
-Returns full consent history for a user.
-
----
-
-### Report Incident
-
-### `POST /api/compliance/incidents`
-
-### Request
-
-```json
-{
-  "severity": "high",
-  "title": "Unauthorized data access attempt",
-  "description": "User attempted to access records outside their tenant",
-  "affectedAppId": "c3d4e5f6-0000-0000-0000-000000000001",
-  "affectedUsersCount": 1
-}
-```
-
-### Fields
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `severity` | string | Yes | `low`, `medium`, `high`, `critical` |
-| `title` | string | Yes | Short description |
-| `description` | string | Yes | Full incident details |
-| `affectedAppId` | Guid? | No | App involved |
-| `affectedUsersCount` | int? | No | Estimated number of users affected |
-
----
-
-### Update Incident
-
-### `PUT /api/compliance/incidents/{id}`
-
-### Request
-
-```json
-{
-  "status": "resolved",
-  "resolution": "Access control rule corrected. No data exfiltration confirmed."
-}
-```
-
-Valid statuses: `open`, `investigating`, `resolved`, `closed`
+**Notes:**
+- API tokens belonging to this user for this project are immediately revoked.
+- GitHub repo collaborator access is **not removed** (known limitation).
 
 ---
 
 ## Claude Config
 
-Returns the generated `CLAUDE.md` and its associated API token for a project.
+Manages the CLAUDE.md context file and the long-lived API token that Claude Code uses to access the DB Proxy. One token per project — regenerating replaces the previous one.
 
-**Requires:** `Authorization: Bearer <access_token>`
+**Auth required for all:** Security Platform JWT
 
-| Method | Route | Description |
+---
+
+### Get Config
+
+### `GET /api/projects/{id}/claude-config`
+
+Generates a `CLAUDE.md` file content and a 30-day API token for Claude Code. If a valid token already exists, it is reused.
+
+**Path Parameters:**
+
+| Param | Type | Description |
 |---|---|---|
-| `GET` | `/api/projects/{projectId}/claude-config` | Get current config and token |
-| `POST` | `/api/projects/{projectId}/claude-config/regenerate` | Rotate token and regenerate config |
-| `DELETE` | `/api/projects/{projectId}/claude-config` | Revoke token and clear config |
+| `id` | UUID | Project ID |
 
-### Success Response — `200`
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
 
 ```json
 {
-  "content": "# Project Context\n\nAPI Base URL: https://...\n...",
-  "tokenId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-  "expiresAt": "2026-04-22T10:00:00Z"
+  "success": true,
+  "data": {
+    "content": "# Project: Acme CRM\n\n## DB Proxy\n...",
+    "tokenId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    "expiresAt": "2026-04-26T14:00:00Z"
+  }
 }
 ```
 
-### Notes
+**Fields:**
 
-- `content` is the full rendered `CLAUDE.md` string — write it directly to disk
-- `POST /regenerate` revokes the old token and issues a new one scoped to the same app — update your local `CLAUDE.md` after calling this
-- `project.AppId` must be set for this endpoint to work — returns `409` if `AppId` is null
+| Field | Description |
+|---|---|
+| `content` | Full CLAUDE.md file text. Write this to `.claude/CLAUDE.md` in the project repo. |
+| `tokenId` | UUID of the issued token (used for tracking / revocation). |
+| `expiresAt` | Token expiry — 30 days from issuance. |
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | User does not have access to this project |
+| `404` | Project not found |
+| `422` | Project has no `appSlug` — legacy project not registered with Security Platform |
+
+---
+
+### Regenerate Token
+
+### `POST /api/projects/{id}/claude-config/regenerate`
+
+Revokes the current API token and issues a new one. Returns fresh CLAUDE.md content with the new token embedded.
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:** Same shape as [Get Config](#get-config).
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | User does not have access to this project |
+| `404` | Project not found |
+| `422` | Project has no `appSlug` |
+
+**Notes:**
+- The old token is immediately invalidated. Any Claude Code session using the old token will receive `401` on the next request.
+- After regeneration, update `.claude/CLAUDE.md` in the project repo with the new `content`.
+
+---
+
+### Revoke Token 2
+
+### `DELETE /api/projects/{id}/claude-config`
+
+Revokes the active API token for this project without issuing a replacement.
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | User does not have access to this project |
+| `404` | Project not found |
+| `422` | Project has no `appSlug` |
+
+---
+
+## DB Proxy — Schema
+
+All schema endpoints require an **API Token** (`token_type: api_token`). Security Platform JWTs return `403`.
+
+The token's `schema` claim determines which Postgres schema is queried. Do not prefix table names in queries — `search_path` is set automatically.
+
+---
+
+### List Tables
+
+### `GET /api/projects/{projectId}/schema/tables`
+
+Returns all tables in the project's Postgres schema.
+
+**Required permission:** `read`
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "tableName": "customers", "tableType": "BASE TABLE" },
+    { "tableName": "orders", "tableType": "BASE TABLE" }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or expired token |
+| `403` | Token lacks `read` permission, or schema claim is missing/invalid |
+
+---
+
+### Get Columns
+
+### `GET /api/projects/{projectId}/schema/columns`
+
+Returns column definitions. Optionally filter by table name.
+
+**Required permission:** `read`
+
+**Query Parameters:**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `table` | string | No | Table name to filter by. Omit to return all columns in the schema. |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "tableName": "customers",
+      "columnName": "id",
+      "dataType": "uuid",
+      "isNullable": false,
+      "columnDefault": "gen_random_uuid()",
+      "ordinalPosition": 1
+    },
+    {
+      "tableName": "customers",
+      "columnName": "email",
+      "dataType": "text",
+      "isNullable": false,
+      "columnDefault": null,
+      "ordinalPosition": 2
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or expired token |
+| `403` | Token lacks `read` permission |
+
+---
+
+### Get Relationships
+
+### `GET /api/projects/{projectId}/schema/relationships`
+
+Returns all foreign key relationships in the project schema.
+
+**Required permission:** `read`
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "constraintName": "orders_customer_id_fkey",
+      "tableName": "orders",
+      "columnName": "customer_id",
+      "foreignTableName": "customers",
+      "foreignColumnName": "id"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or expired token |
+| `403` | Token lacks `read` permission |
+
+---
+
+### Full Schema
+
+### `GET /api/projects/{projectId}/schema/full`
+
+Returns tables, columns, and relationships in a single call. Use this to build a complete data dictionary.
+
+**Required permission:** `read`
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "tables": [
+      { "tableName": "customers", "tableType": "BASE TABLE" }
+    ],
+    "columns": [
+      {
+        "tableName": "customers",
+        "columnName": "id",
+        "dataType": "uuid",
+        "isNullable": false,
+        "columnDefault": "gen_random_uuid()",
+        "ordinalPosition": 1
+      }
+    ],
+    "relationships": [
+      {
+        "constraintName": "orders_customer_id_fkey",
+        "tableName": "orders",
+        "columnName": "customer_id",
+        "foreignTableName": "customers",
+        "foreignColumnName": "id"
+      }
+    ]
+  }
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or expired token |
+| `403` | Token lacks `read` permission |
+
+---
+
+## DB Proxy — Migrations
+
+All migration endpoints require an **API Token** with `ddl` permission.
+
+After every DDL operation, HubApi syncs `DATA_DICTIONARY.md` to the project's GitHub repo (fire-and-forget — a GitHub failure never rolls back a successful DDL).
+
+All migration endpoints return `200` with `"data": null` on success.
+
+---
+
+### Create Schema
+
+### `POST /api/projects/{projectId}/migration/create-schema`
+
+Initializes the project's Postgres schema. Run this once after project creation, before creating any tables.
+
+**Required permission:** `ddl`
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or expired token |
+| `403` | Token lacks `ddl` permission or schema claim is invalid |
+
+**Notes:**
+- This is idempotent in practice (`CREATE SCHEMA IF NOT EXISTS`) — safe to call if you are unsure whether the schema exists.
+
+---
+
+### Create Table
+
+### `POST /api/projects/{projectId}/migration/create-table`
+
+Creates a new table in the project schema.
+
+**Required permission:** `ddl`
+
+**Request:**
+
+```json
+{
+  "tableName": "customers",
+  "columns": [
+    {
+      "name": "id",
+      "type": "uuid",
+      "isPrimaryKey": true,
+      "default": "gen_random_uuid()",
+      "nullable": false
+    },
+    {
+      "name": "email",
+      "type": "text",
+      "isPrimaryKey": false,
+      "default": null,
+      "nullable": false
+    },
+    {
+      "name": "created_at",
+      "type": "timestamptz",
+      "isPrimaryKey": false,
+      "default": "now()",
+      "nullable": false
+    }
+  ],
+  "enableRls": true
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tableName` | string | Yes | Table name. Must be a valid SQL identifier (lowercase, no spaces, no reserved words). |
+| `columns` | array | Yes | At least one column required. |
+| `columns[].name` | string | Yes | Column name. Same naming rules as `tableName`. |
+| `columns[].type` | string | Yes | Postgres type: `uuid`, `text`, `int`, `bigint`, `boolean`, `timestamptz`, `numeric`, `jsonb`, etc. |
+| `columns[].isPrimaryKey` | bool | Yes | Set `true` for the primary key column. |
+| `columns[].default` | string | No | SQL default expression, e.g. `gen_random_uuid()`, `now()`. |
+| `columns[].nullable` | bool | Yes | Whether the column allows `NULL`. Default: `true`. |
+| `enableRls` | bool | Yes | Enables Row Level Security. Recommended: `true`. |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Invalid `tableName`, invalid column `name`, or no columns provided |
+| `401` | Missing or expired token |
+| `403` | Token lacks `ddl` permission |
+| `409` | Table already exists |
+
+**Notes:**
+- Table and column names are validated server-side. SQL keywords and special characters are rejected.
+- `enableRls: true` enables RLS on the table but does not configure any policies. Policies must be added via `POST /query/write` or a manual migration.
+
+---
+
+### Alter Table
+
+### `PUT /api/projects/{projectId}/migration/alter-table`
+
+Modifies an existing table's columns.
+
+**Required permission:** `ddl`
+
+**Request:**
+
+```json
+{
+  "tableName": "customers",
+  "operations": [
+    {
+      "type": "AddColumn",
+      "columnName": "phone",
+      "dataType": "text",
+      "nullable": true
+    },
+    {
+      "type": "RenameColumn",
+      "columnName": "email",
+      "newColumnName": "email_address"
+    },
+    {
+      "type": "DropColumn",
+      "columnName": "legacy_field"
+    }
+  ]
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tableName` | string | Yes | Target table |
+| `operations` | array | Yes | One or more operations, applied in order |
+| `operations[].type` | string | Yes | One of: `AddColumn`, `DropColumn`, `RenameColumn`, `SetNotNull`, `DropNotNull` |
+| `operations[].columnName` | string | Yes | Column to act on |
+| `operations[].newColumnName` | string | Conditional | Required when `type` is `RenameColumn` |
+| `operations[].dataType` | string | Conditional | Required when `type` is `AddColumn` |
+| `operations[].nullable` | bool | Conditional | Used with `AddColumn` |
+
+**Operation Types:**
+
+| Type | Effect |
+|---|---|
+| `AddColumn` | Adds a new column |
+| `DropColumn` | Drops a column — **irreversible** |
+| `RenameColumn` | Renames a column |
+| `SetNotNull` | Adds `NOT NULL` — fails if existing rows contain nulls |
+| `DropNotNull` | Removes `NOT NULL` constraint |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Invalid `tableName`, `columnName`, or `newColumnName` |
+| `401` | Missing or expired token |
+| `403` | Token lacks `ddl` permission |
+| `404` | Table or column does not exist |
+| `422` | `SetNotNull` on a column that contains null values |
+
+**Notes:**
+- Operations are applied in the order given. If one fails, subsequent operations in the same request are not applied.
+- `DropColumn` is irreversible.
+
+---
+
+### Drop Table
+
+### `DELETE /api/projects/{projectId}/migration/drop-table`
+
+Drops a table from the project schema. Irreversible — all data is permanently deleted.
+
+**Required permission:** `ddl`
+
+**Query Parameters:**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `table` | string | Yes | Name of the table to drop |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | Missing or invalid `table` parameter |
+| `401` | Missing or expired token |
+| `403` | Token lacks `ddl` permission |
+| `404` | Table does not exist |
+
+**Notes:**
+- Hard `DROP TABLE`. No soft delete or confirmation prompt.
+- Drop dependent tables first, or handle foreign key constraints manually before dropping.
+
+---
+
+## DB Proxy — Queries
+
+All query endpoints require an **API Token**. Security Platform JWTs are rejected.
+
+---
+
+### Read Query
+
+### `POST /api/projects/{projectId}/query/read`
+
+Executes a parameterized `SELECT` query against the project schema.
+
+**Required permission:** `read`
+
+**Request:**
+
+```json
+{
+  "sql": "SELECT id, email, created_at FROM customers WHERE created_at > @since ORDER BY created_at DESC LIMIT 50",
+  "parameters": {
+    "since": "2026-01-01T00:00:00Z"
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sql` | string | Yes | A `SELECT` statement. DDL and DML keywords are blocked at the middleware level. |
+| `parameters` | object | No | Key-value pairs. Keys must match `@param` placeholders in `sql`. |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "email": "alice@flatplanet.io",
+      "created_at": "2026-03-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | SQL contains blocked keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`) |
+| `401` | Missing or expired token |
+| `403` | Token lacks `read` permission |
+| `422` | SQL syntax error or query execution failure |
+
+**Notes:**
+- `search_path` is automatically set to the project schema before execution — do not prefix table names with the schema name.
+- Read queries are **not** audit logged.
+- No built-in query timeout. Use `LIMIT` to bound result sets.
+
+---
+
+### Write Query
+
+### `POST /api/projects/{projectId}/query/write`
+
+Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project schema.
+
+**Required permission:** `write`
+
+**Request:**
+
+```json
+{
+  "sql": "INSERT INTO customers (email, created_at) VALUES (@email, @created_at)",
+  "parameters": {
+    "email": "bob@flatplanet.io",
+    "created_at": "2026-03-26T14:00:00Z"
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sql` | string | Yes | An `INSERT`, `UPDATE`, or `DELETE`. DDL keywords are blocked. |
+| `parameters` | object | No | Parameterized values matching `@param` placeholders. |
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": null,
+  "rowsAffected": 1
+}
+```
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | SQL contains blocked DDL keywords |
+| `401` | Missing or expired token |
+| `403` | Token lacks `write` permission |
+| `422` | SQL syntax error, constraint violation, or execution failure |
+
+**Notes:**
+- `rowsAffected` reflects the number of rows changed.
+- Write operations **are** audit logged.
+- No transaction wrapping — each request is a single statement.
+- DDL is blocked (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`). Use the Migration endpoints for schema changes.
+
+---
+
+## Standard Response Envelope
+
+All endpoints return a consistent envelope:
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "rowsAffected": null,
+  "error": null
+}
+```
+
+| Field | Present when | Description |
+|---|---|---|
+| `success` | Always | `true` on success, `false` on error |
+| `data` | Success | Response payload. `null` for operations with no return value. |
+| `rowsAffected` | Write queries only | Number of rows affected. |
+| `error` | Failure | Human-readable error message. Do not parse this string — treat it as opaque. |
 
 ---
 
 ## Error Reference
 
-All error responses use the same envelope:
+| Code | Meaning | Common Causes |
+|---|---|---|
+| `400` | Bad Request | Missing required field, validation failure, blocked SQL keyword |
+| `401` | Unauthorized | Missing `Authorization` header, expired JWT, revoked API token |
+| `403` | Forbidden | Valid token but insufficient permission; Security Platform denied the action; invalid or missing schema claim on API token |
+| `404` | Not Found | Project, member, or resource does not exist; or the caller has no visibility into it |
+| `409` | Conflict | Duplicate project slug, user already a member |
+| `422` | Unprocessable | Semantic error — SQL syntax failure, constraint violation, `SetNotNull` on nullable data, legacy project missing `appSlug` |
+| `500` | Server Error | Unexpected failure — report with request ID if available |
+| `502` | Bad Gateway | Security Platform unreachable or returned an unexpected error |
 
-```json
-{
-  "success": false,
-  "data": null,
-  "error": "Descriptive error message here"
-}
-```
+**On `403` from DB Proxy endpoints:** Almost always means the API token's `permissions` claim does not include the required permission (e.g., running a write query with a `read`-only token). Regenerate the token via `POST /api/projects/{id}/claude-config/regenerate`.
 
-Global exception mapping:
-
-| Exception Type | HTTP Status |
-|---|---|
-| `KeyNotFoundException` | `404 Not Found` |
-| `UnauthorizedAccessException` | `403 Forbidden` |
-| `ValidationException` | `400 Bad Request` |
-| `ArgumentException` | `400 Bad Request` |
-| `InvalidOperationException` | `409 Conflict` |
-| Unhandled | `500 Internal Server Error` |
-
-### Common Error Scenarios
-
-| Status | When to expect it |
-|---|---|
-| `400` | Missing required field, invalid enum value, SQL validation failure |
-| `401` | No `Authorization` header, expired access token |
-| `403` | Valid token but insufficient permission, schema claim invalid, self-registration attempt |
-| `404` | Resource with given ID does not exist |
-| `409` | Duplicate (username, slug, repo), merge conflict, stale SHA on file update, token reuse |
-| `500` | Upstream DB error, GitHub API failure — safe to retry once with backoff |
-
-### Retry Guidance
-
-| Scenario | Action |
-|---|---|
-| `401` on any request | Refresh the access token, then retry once |
-| `401` on refresh | Redirect user to GitHub OAuth login |
-| `409` on token refresh | Session may be compromised — force re-login |
-| `409` on file upsert | Re-fetch file SHA, update your local state, retry |
-| `500` | Retry once after 1–2 seconds. If it persists, do not loop. |
-| Any `4xx` except `401` | Do not retry — fix the request |
+**On `502`:** The Security Platform is a hard dependency for project creation, member management, and permission checks. Schema, Migration, and Query endpoints are unaffected — they rely on API tokens only.
