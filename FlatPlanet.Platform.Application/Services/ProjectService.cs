@@ -7,20 +7,20 @@ namespace FlatPlanet.Platform.Application.Services;
 public sealed class ProjectService : IProjectService
 {
     private readonly IProjectRepository _projectRepo;
-    private readonly IDbProxyService _dbProxy;
     private readonly ISecurityPlatformService _securityPlatform;
     private readonly IGitHubRepoService _gitHubRepo;
+    private readonly IDbProxyService _dbProxy;
 
     public ProjectService(
         IProjectRepository projectRepo,
-        IDbProxyService dbProxy,
         ISecurityPlatformService securityPlatform,
-        IGitHubRepoService gitHubRepo)
+        IGitHubRepoService gitHubRepo,
+        IDbProxyService dbProxy)
     {
         _projectRepo = projectRepo;
-        _dbProxy = dbProxy;
         _securityPlatform = securityPlatform;
         _gitHubRepo = gitHubRepo;
+        _dbProxy = dbProxy;
     }
 
     public async Task<ProjectResponse> CreateProjectAsync(Guid userId, Guid companyId, string baseUrl, CreateProjectRequest request)
@@ -36,7 +36,6 @@ public sealed class ProjectService : IProjectService
             Description = request.Description,
             SchemaName = schemaName,
             OwnerId = userId,
-            AppSlug = appSlug,
             TechStack = request.TechStack,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -44,37 +43,33 @@ public sealed class ProjectService : IProjectService
         };
 
         var created = await _projectRepo.CreateAsync(project);
-        await _dbProxy.CreateSchemaAsync(schemaName);
 
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
+        await _securityPlatform.SetupProjectRolesAsync(appId);
+        await _securityPlatform.GrantRoleAsync(appId, userId, "owner");
+
         created.AppId = appId;
+        created.AppSlug = appSlug;
         created.UpdatedAt = DateTime.UtcNow;
         await _projectRepo.UpdateAsync(created);
 
-        await _securityPlatform.GrantRoleAsync(appId, userId, "owner");
-
-        _ = Task.Run(async () =>
-        {
-            try { await _gitHubRepo.SeedProjectFilesAsync(created); }
-            catch { /* fire-and-forget */ }
-        });
+        _ = _gitHubRepo.SeedProjectFilesAsync(created);
+        _ = _dbProxy.CreateSchemaAsync(schemaName);
 
         return ToResponse(created, "owner");
     }
 
     public async Task<IEnumerable<ProjectResponse>> GetUserProjectsAsync(Guid userId)
     {
-        var appRoles = await _securityPlatform.GetUserAppRolesAsync(userId);
-        var responses = new List<ProjectResponse>();
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+        var appIds = appAccess.Select(a => a.AppId).ToList();
+        var projects = await _projectRepo.GetByAppIdsAsync(appIds);
 
-        foreach (var dto in appRoles)
+        return projects.Select(p =>
         {
-            var project = await _projectRepo.GetByAppSlugAsync(dto.AppSlug);
-            if (project is null) continue;
-            responses.Add(ToResponse(project, dto.RoleName));
-        }
-
-        return responses;
+            var entry = appAccess.FirstOrDefault(a => a.AppId == p.AppId);
+            return ToResponse(p, entry?.RoleName);
+        });
     }
 
     public async Task<ProjectResponse> GetProjectAsync(Guid projectId, Guid userId)
@@ -82,10 +77,13 @@ public sealed class ProjectService : IProjectService
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
         {
-            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read", userId);
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read");
             if (!allowed) throw new UnauthorizedAccessException("You do not have read access to this project.");
         }
-        return ToResponse(project);
+
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+        var entry = appAccess.FirstOrDefault(a => a.AppId == project.AppId);
+        return ToResponse(project, entry?.RoleName);
     }
 
     public async Task<ProjectResponse> UpdateProjectAsync(Guid projectId, Guid userId, UpdateProjectRequest request)
@@ -93,7 +91,7 @@ public sealed class ProjectService : IProjectService
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
         {
-            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "manage_members", userId);
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "manage_members");
             if (!allowed) throw new UnauthorizedAccessException("You do not have permission to update this project.");
         }
 
@@ -112,7 +110,7 @@ public sealed class ProjectService : IProjectService
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
         {
-            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "delete_project", userId);
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "delete_project");
             if (!allowed) throw new UnauthorizedAccessException("You do not have permission to deactivate this project.");
         }
 
@@ -127,9 +125,12 @@ public sealed class ProjectService : IProjectService
         await _projectRepo.GetByIdAsync(projectId)
         ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-    private static string GenerateSlug(string name) =>
-        System.Text.RegularExpressions.Regex.Replace(
+    private static string GenerateSlug(string name)
+    {
+        var slug = System.Text.RegularExpressions.Regex.Replace(
             name.ToLowerInvariant().Trim(), @"[^a-z0-9]+", "-").Trim('-');
+        return slug[..Math.Min(100, slug.Length)];
+    }
 
     private static ProjectResponse ToResponse(Project p, string? roleName = null) => new()
     {

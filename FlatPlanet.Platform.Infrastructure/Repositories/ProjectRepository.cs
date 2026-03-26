@@ -17,23 +17,22 @@ public sealed class ProjectRepository : IProjectRepository
             "SELECT * FROM platform.projects WHERE id = @id", new { id });
     }
 
-    public async Task<IEnumerable<Project>> GetByUserIdAsync(Guid userId)
+    public async Task<Project?> GetByAppIdAsync(Guid appId)
+    {
+        await using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<Project>(
+            "SELECT * FROM platform.projects WHERE app_id = @appId", new { appId });
+    }
+
+    public async Task<IEnumerable<Project>> GetByAppIdsAsync(IEnumerable<Guid> appIds)
     {
         await using var conn = _db.CreateConnection();
         const string sql = """
             SELECT * FROM platform.projects
-            WHERE owner_id = @userId AND is_active = true
+            WHERE app_id = ANY(@appIds) AND is_active = true
             ORDER BY created_at DESC
             """;
-        return await conn.QueryAsync<Project>(sql, new { userId });
-    }
-
-    public async Task<Project?> GetByAppSlugAsync(string slug)
-    {
-        await using var conn = _db.CreateConnection();
-        return await conn.QuerySingleOrDefaultAsync<Project>(
-            "SELECT * FROM platform.projects WHERE app_slug = @slug AND is_active = true",
-            new { slug });
+        return await conn.QueryAsync<Project>(sql, new { appIds = appIds.ToArray() });
     }
 
     public async Task<Project> CreateAsync(Project project)

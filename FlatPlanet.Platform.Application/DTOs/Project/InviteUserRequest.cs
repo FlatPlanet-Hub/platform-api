@@ -4,4 +4,5 @@ public sealed class InviteUserRequest
 {
     public Guid UserId { get; init; }
     public string Role { get; init; } = string.Empty;
+    public string? GitHubUsername { get; init; }
 }

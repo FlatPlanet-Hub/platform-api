@@ -27,7 +27,7 @@ public sealed class ProjectMemberService : IProjectMemberService
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
         {
-            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read", userId);
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read");
             if (!allowed) throw new UnauthorizedAccessException("You do not have read access to this project.");
         }
 
@@ -42,7 +42,7 @@ public sealed class ProjectMemberService : IProjectMemberService
             responses.Add(new ProjectMemberResponse
             {
                 UserId = m.UserId,
-                GitHubUsername = spUser.GitHubUsername,
+                GitHubUsername = null,  // SP has no GitHub field (known limitation)
                 Email = spUser.Email,
                 FullName = spUser.FullName,
                 RoleName = m.RoleName,
@@ -57,34 +57,31 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task InviteMemberAsync(Guid projectId, Guid requestingUserId, InviteUserRequest request)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, requestingUserId, "manage_members");
+        await RequirePermissionAsync(project, "manage_members");
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
 
         await _securityPlatform.GrantRoleAsync(project.AppId.Value, request.UserId, request.Role);
 
-        var spUser = await _securityPlatform.GetUserAsync(request.UserId);
-        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
+        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(request.GitHubUsername))
         {
             var githubPermission = MapRoleToGitHub(request.Role);
-            await _gitHubRepo.InviteCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername, githubPermission);
+            await _gitHubRepo.InviteCollaboratorAsync(project.GitHubRepo, request.GitHubUsername, githubPermission);
         }
     }
 
     public async Task RemoveMemberAsync(Guid projectId, Guid targetUserId, Guid requestingUserId)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, requestingUserId, "manage_members");
+        await RequirePermissionAsync(project, "manage_members");
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
 
         await _securityPlatform.RevokeRoleAsync(project.AppId.Value, targetUserId);
 
-        var spUser = await _securityPlatform.GetUserAsync(targetUserId);
-        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
-            await _gitHubRepo.RemoveCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername);
+        // GitHub removal not possible — GitHubUsername not available from SP (known limitation)
 
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(targetUserId);
         foreach (var t in tokens.Where(t => t.AppId == project.AppId))
@@ -94,20 +91,14 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task UpdateMemberRoleAsync(Guid projectId, Guid targetUserId, Guid requestingUserId, UpdateMemberRoleRequest request)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, requestingUserId, "manage_members");
+        await RequirePermissionAsync(project, "manage_members");
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
 
-        await _securityPlatform.RevokeRoleAsync(project.AppId.Value, targetUserId);
-        await _securityPlatform.GrantRoleAsync(project.AppId.Value, targetUserId, request.Role);
+        await _securityPlatform.ChangeRoleAsync(project.AppId.Value, targetUserId, request.Role);
 
-        var spUser = await _securityPlatform.GetUserAsync(targetUserId);
-        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
-        {
-            var githubPermission = MapRoleToGitHub(request.Role);
-            await _gitHubRepo.InviteCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername, githubPermission);
-        }
+        // GitHub permission not updated — GitHubUsername not available from SP (known limitation)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -116,17 +107,17 @@ public sealed class ProjectMemberService : IProjectMemberService
         await _projectRepo.GetByIdAsync(projectId)
         ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-    private async Task RequirePermissionAsync(Domain.Entities.Project project, Guid userId, string permission)
+    private async Task RequirePermissionAsync(Domain.Entities.Project project, string permission)
     {
         if (project.AppSlug is null) return;
-        var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, project.Id.ToString(), permission, userId);
+        var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, project.Id.ToString(), permission);
         if (!allowed) throw new UnauthorizedAccessException($"You do not have '{permission}' permission on this project.");
     }
 
     private static string MapRoleToGitHub(string role) => role.ToLowerInvariant() switch
     {
-        "owner" => "admin",
+        "owner"     => "admin",
         "developer" => "push",
-        _ => "pull"
+        _           => "pull"
     };
 }

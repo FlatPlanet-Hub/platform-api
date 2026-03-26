@@ -13,27 +13,27 @@ public sealed class AuthController : ApiControllerBase
     public ActionResult<ApiResponse<MeResponse>> Me()
     {
         var sub = User.FindFirst("sub")?.Value
-               ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+                  ?? User.FindFirst(
+                      System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
 
-        if (string.IsNullOrWhiteSpace(sub) || !Guid.TryParse(sub, out var userId))
+        if (!Guid.TryParse(sub, out var userId))
             return Unauthorized();
 
-        Guid.TryParse(User.FindFirst("company_id")?.Value, out var companyId);
+        var email    = User.FindFirst("email")?.Value ?? string.Empty;
+        var fullName = User.FindFirst("full_name")?.Value ?? string.Empty;
+        var companyId = User.FindFirst("company_id")?.Value;
 
-        var permissionsClaim = User.FindFirst("permissions")?.Value ?? string.Empty;
-        var canCreateProject = permissionsClaim
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Contains("create_project", StringComparer.OrdinalIgnoreCase);
+        var permissions = (User.FindFirst("permissions")?.Value ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        var response = new MeResponse
+        return Ok(ApiResponse<MeResponse>.Ok(new MeResponse
         {
             UserId = userId,
-            Email = User.FindFirst("email")?.Value ?? string.Empty,
-            FullName = User.FindFirst("name")?.Value ?? string.Empty,
-            CompanyId = companyId == Guid.Empty ? null : companyId,
-            CanCreateProject = canCreateProject
-        };
-
-        return Ok(ApiResponse<MeResponse>.Ok(response));
+            Email = email,
+            FullName = fullName,
+            CompanyId = companyId,
+            CanCreateProject = permissions.Contains("create_project",
+                StringComparer.OrdinalIgnoreCase)
+        }));
     }
 }
