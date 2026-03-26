@@ -20,60 +20,37 @@ public static class InfrastructureExtensions
         services.Configure<GitHubSettings>(opts => configuration.GetSection("GitHub").Bind(opts));
         services.Configure<EncryptionSettings>(opts => configuration.GetSection("Encryption").Bind(opts));
 
+        var spSettings = configuration.GetSection("SecurityPlatform").Get<SecurityPlatformSettings>()
+            ?? new SecurityPlatformSettings();
+        services.AddHttpClient("SecurityPlatform", client =>
+        {
+            client.BaseAddress = new Uri(spSettings.BaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", spSettings.ServiceToken);
+        });
+        services.AddScoped<ISecurityPlatformService, SecurityPlatformService>();
+
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IAuditService, AuditService>();
 
-        // Feature 1 — DB Proxy
+        // DB Proxy
         services.AddScoped<IDbProxyService, DbProxyService>();
 
-        // Feature 2 — Auth repositories
-        services.AddScoped<IUserRepository, UserRepository>();
-        services.AddScoped<IRoleRepository, RoleRepository>();
-        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-        services.AddScoped<IProjectRepository, ProjectRepository>();
-        services.AddScoped<IProjectRoleRepository, ProjectRoleRepository>();
-        services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
-
-        // Feature 3 — Admin repositories
-        services.AddScoped<ICustomRoleRepository, CustomRoleRepository>();
-        services.AddScoped<IPermissionRepository, PermissionRepository>();
-
-        // Feature 4 — GitHub Repo
-        services.AddHttpClient<IGitHubOAuthService, GitHubOAuthService>();
+        // GitHub
         services.AddScoped<IGitHubRepoService, GitHubRepoService>();
 
-        // Feature 6 — IAM repositories
+        // Repositories
+        services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IApiTokenRepository, ApiTokenRepository>();
-        services.AddScoped<ISessionRepository, SessionRepository>();
-        services.AddScoped<ICompanyRepository, CompanyRepository>();
-        services.AddScoped<IAppRepository, AppRepository>();
-        services.AddScoped<IUserAppRoleRepository, UserAppRoleRepository>();
-        services.AddScoped<IOAuthProviderRepository, OAuthProviderRepository>();
-        services.AddScoped<IUserOAuthLinkRepository, UserOAuthLinkRepository>();
-        services.AddScoped<IRolePermissionRepository, RolePermissionRepository>();
-        services.AddScoped<IResourceRepository, ResourceRepository>();
-        services.AddScoped<IResourcePolicyRepository, ResourcePolicyRepository>();
 
         // Application services
-        services.AddScoped<IUserService, UserService>();
         services.AddScoped<IProjectService, ProjectService>();
-        services.AddScoped<IProjectRoleService, ProjectRoleService>();
         services.AddScoped<IProjectMemberService, ProjectMemberService>();
-        services.AddScoped<IAdminUserService, AdminUserService>();
-        services.AddScoped<IAdminRoleService, AdminRoleService>();
-
-        // Feature 5 — Claude config
         services.AddScoped<IClaudeConfigService, ClaudeConfigService>();
-
-        // Feature 6 — IAM services
         services.AddScoped<IApiTokenService, ApiTokenService>();
-        services.AddScoped<IIamAuthorizationService, IamAuthorizationService>();
-        services.AddScoped<ICompanyService, CompanyService>();
-        services.AddScoped<IAppService, AppService>();
-        services.AddScoped<IResourceService, ResourceService>();
 
         return services;
     }

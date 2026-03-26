@@ -72,13 +72,15 @@ public sealed class JwtService : IJwtService
     }
 
     // Feature 6 — long-lived API token (Claude Code, CI/CD, integrations)
-    public string GenerateApiToken(User user, Guid? appId, string appSlug, string? schema, string[] permissions, int expiryDays, out DateTime expiresAt)
+    public string GenerateApiToken(Guid userId, string userName, string userEmail, Guid? appId, string appSlug, string? schema, string[] permissions, int expiryDays, out DateTime expiresAt)
     {
         expiresAt = DateTime.UtcNow.AddDays(expiryDays);
 
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Sub, userId.ToString()),
+            new("name", userName),
+            new("email", userEmail),
             new("app_slug", appSlug),
             new("permissions", string.Join(",", permissions)),
             new("token_type", "api_token"),

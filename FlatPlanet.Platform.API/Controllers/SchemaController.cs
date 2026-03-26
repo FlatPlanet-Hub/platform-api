@@ -7,7 +7,7 @@ using FlatPlanet.Platform.Domain.Entities;
 
 namespace FlatPlanet.Platform.API.Controllers;
 
-[Route("api/schema")]
+[Route("api/projects/{projectId:guid}/schema")]
 [Authorize]
 public sealed class SchemaController : ApiControllerBase
 {

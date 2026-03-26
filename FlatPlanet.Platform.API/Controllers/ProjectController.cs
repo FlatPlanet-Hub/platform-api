@@ -11,12 +11,10 @@ namespace FlatPlanet.Platform.API.Controllers;
 public sealed class ProjectController : ApiControllerBase
 {
     private readonly IProjectService _projectService;
-    private readonly IProjectRoleService _roleService;
 
-    public ProjectController(IProjectService projectService, IProjectRoleService roleService)
+    public ProjectController(IProjectService projectService)
     {
         _projectService = projectService;
-        _roleService = roleService;
     }
 
     [HttpPost]
@@ -28,7 +26,11 @@ public sealed class ProjectController : ApiControllerBase
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest(ApiResponse<object>.Fail("Project name is required."));
 
-        var result = await _projectService.CreateProjectAsync(userId.Value, request);
+        if (!Guid.TryParse(User.FindFirst("company_id")?.Value, out var companyId) || companyId == Guid.Empty)
+            return BadRequest(ApiResponse<object>.Fail("Valid company_id claim is required."));
+
+        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        var result = await _projectService.CreateProjectAsync(userId.Value, companyId, baseUrl, request);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<ProjectResponse>.Ok(result));
     }
 
@@ -72,46 +74,5 @@ public sealed class ProjectController : ApiControllerBase
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
-    // ── Project Roles ────────────────────────────────────────────────────────
-
-    [HttpGet("{id:guid}/roles")]
-    public async Task<ActionResult<ApiResponse<IEnumerable<ProjectRoleResponse>>>> GetRoles(Guid id)
-    {
-        var userId = GetUserId();
-        if (userId is null) return Unauthorized();
-
-        var roles = await _roleService.GetProjectRolesAsync(id, userId.Value);
-        return Ok(ApiResponse<IEnumerable<ProjectRoleResponse>>.Ok(roles));
-    }
-
-    [HttpPost("{id:guid}/roles")]
-    public async Task<ActionResult<ApiResponse<ProjectRoleResponse>>> CreateRole(Guid id, [FromBody] CreateProjectRoleRequest request)
-    {
-        var userId = GetUserId();
-        if (userId is null) return Unauthorized();
-
-        var role = await _roleService.CreateProjectRoleAsync(id, userId.Value, request);
-        return Ok(ApiResponse<ProjectRoleResponse>.Ok(role));
-    }
-
-    [HttpPut("{id:guid}/roles/{roleId:guid}")]
-    public async Task<ActionResult<ApiResponse<object?>>> UpdateRole(Guid id, Guid roleId, [FromBody] UpdateProjectRoleRequest request)
-    {
-        var userId = GetUserId();
-        if (userId is null) return Unauthorized();
-
-        await _roleService.UpdateProjectRoleAsync(id, roleId, userId.Value, request);
-        return Ok(ApiResponse<object?>.Ok(null));
-    }
-
-    [HttpDelete("{id:guid}/roles/{roleId:guid}")]
-    public async Task<ActionResult<ApiResponse<object?>>> DeleteRole(Guid id, Guid roleId)
-    {
-        var userId = GetUserId();
-        if (userId is null) return Unauthorized();
-
-        await _roleService.DeleteProjectRoleAsync(id, roleId, userId.Value);
-        return Ok(ApiResponse<object?>.Ok(null));
-    }
 
 }

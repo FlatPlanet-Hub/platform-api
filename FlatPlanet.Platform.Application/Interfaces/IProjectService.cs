@@ -4,7 +4,7 @@ namespace FlatPlanet.Platform.Application.Interfaces;
 
 public interface IProjectService
 {
-    Task<ProjectResponse> CreateProjectAsync(Guid userId, CreateProjectRequest request);
+    Task<ProjectResponse> CreateProjectAsync(Guid userId, Guid companyId, string baseUrl, CreateProjectRequest request);
     Task<IEnumerable<ProjectResponse>> GetUserProjectsAsync(Guid userId);
     Task<ProjectResponse> GetProjectAsync(Guid projectId, Guid userId);
     Task<ProjectResponse> UpdateProjectAsync(Guid projectId, Guid userId, UpdateProjectRequest request);

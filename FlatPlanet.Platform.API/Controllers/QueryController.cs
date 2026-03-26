@@ -8,7 +8,7 @@ using FlatPlanet.Platform.Domain.Entities;
 
 namespace FlatPlanet.Platform.API.Controllers;
 
-[Route("api/query")]
+[Route("api/projects/{projectId:guid}/query")]
 [Authorize]
 public sealed class QueryController : ApiControllerBase
 {

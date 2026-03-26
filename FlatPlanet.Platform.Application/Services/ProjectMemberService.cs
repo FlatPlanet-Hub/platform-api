@@ -1,50 +1,53 @@
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.Interfaces;
-using FlatPlanet.Platform.Domain.Entities;
 
 namespace FlatPlanet.Platform.Application.Services;
 
 public sealed class ProjectMemberService : IProjectMemberService
 {
-    private readonly IProjectMemberRepository _memberRepo;
-    private readonly IProjectRoleRepository _roleRepo;
-    private readonly IUserRepository _userRepo;
-    private readonly IAuditService _audit;
+    private readonly ISecurityPlatformService _securityPlatform;
+    private readonly IGitHubRepoService _gitHubRepo;
+    private readonly IProjectRepository _projectRepo;
+    private readonly IApiTokenRepository _apiTokenRepo;
 
     public ProjectMemberService(
-        IProjectMemberRepository memberRepo,
-        IProjectRoleRepository roleRepo,
-        IUserRepository userRepo,
-        IAuditService audit)
+        ISecurityPlatformService securityPlatform,
+        IGitHubRepoService gitHubRepo,
+        IProjectRepository projectRepo,
+        IApiTokenRepository apiTokenRepo)
     {
-        _memberRepo = memberRepo;
-        _roleRepo = roleRepo;
-        _userRepo = userRepo;
-        _audit = audit;
+        _securityPlatform = securityPlatform;
+        _gitHubRepo = gitHubRepo;
+        _projectRepo = projectRepo;
+        _apiTokenRepo = apiTokenRepo;
     }
 
     public async Task<IEnumerable<ProjectMemberResponse>> GetMembersAsync(Guid projectId, Guid userId)
     {
-        await RequireMembershipAsync(projectId, userId);
-        var members = await _memberRepo.GetByProjectIdAsync(projectId);
+        var project = await GetOrThrowAsync(projectId);
+        if (project.AppSlug is not null)
+        {
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read", userId);
+            if (!allowed) throw new UnauthorizedAccessException("You do not have read access to this project.");
+        }
+
+        if (project.AppId is null) return [];
+
+        var members = await _securityPlatform.GetAppMembersAsync(project.AppId.Value);
         var responses = new List<ProjectMemberResponse>();
 
         foreach (var m in members)
         {
-            var user = await _userRepo.GetByIdAsync(m.UserId);
-            var role = await _roleRepo.GetByIdAsync(projectId, m.ProjectRoleId);
-            if (user is null || role is null) continue;
-
+            var spUser = await _securityPlatform.GetUserAsync(m.UserId);
             responses.Add(new ProjectMemberResponse
             {
                 UserId = m.UserId,
-                GitHubUsername = user.GitHubUsername,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                AvatarUrl = user.AvatarUrl,
-                RoleName = role.Name,
-                Permissions = role.Permissions,
-                JoinedAt = m.JoinedAt
+                GitHubUsername = spUser.GitHubUsername,
+                Email = spUser.Email,
+                FullName = spUser.FullName,
+                RoleName = m.RoleName,
+                Permissions = m.Permissions,
+                GrantedAt = m.GrantedAt
             });
         }
 
@@ -53,71 +56,77 @@ public sealed class ProjectMemberService : IProjectMemberService
 
     public async Task InviteMemberAsync(Guid projectId, Guid requestingUserId, InviteUserRequest request)
     {
-        await RequirePermissionAsync(projectId, requestingUserId, "manage_members");
+        var project = await GetOrThrowAsync(projectId);
+        await RequirePermissionAsync(project, requestingUserId, "manage_members");
 
-        var targetUser = await _userRepo.GetByGitHubUsernameAsync(request.GitHubUsername)
-            ?? throw new KeyNotFoundException($"User '{request.GitHubUsername}' not found.");
+        if (project.AppId is null)
+            throw new InvalidOperationException("Project is not registered in the Security Platform.");
 
-        var existing = await _memberRepo.GetAsync(projectId, targetUser.Id);
-        if (existing is not null)
-            throw new InvalidOperationException("User is already a member of this project.");
+        await _securityPlatform.GrantRoleAsync(project.AppId.Value, request.UserId, request.Role);
 
-        var role = await _roleRepo.GetByNameAsync(projectId, request.Role)
-            ?? throw new KeyNotFoundException($"Role '{request.Role}' does not exist on this project.");
-
-        await _memberRepo.AddAsync(new ProjectMember
+        var spUser = await _securityPlatform.GetUserAsync(request.UserId);
+        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
         {
-            Id = Guid.NewGuid(),
-            ProjectId = projectId,
-            UserId = targetUser.Id,
-            ProjectRoleId = role.Id,
-            InvitedBy = requestingUserId,
-            Status = "active",
-            JoinedAt = DateTime.UtcNow
-        });
-
-        await _audit.LogAsync(requestingUserId, projectId, "member.invited", "project_members",
-            new { invitedUserId = targetUser.Id, role = request.Role });
-    }
-
-    public async Task UpdateMemberRoleAsync(Guid projectId, Guid targetUserId, Guid requestingUserId, UpdateMemberRoleRequest request)
-    {
-        await RequirePermissionAsync(projectId, requestingUserId, "manage_members");
-
-        var member = await _memberRepo.GetAsync(projectId, targetUserId)
-            ?? throw new KeyNotFoundException("Member not found.");
-
-        var role = await _roleRepo.GetByNameAsync(projectId, request.Role)
-            ?? throw new KeyNotFoundException($"Role '{request.Role}' does not exist on this project.");
-
-        member.ProjectRoleId = role.Id;
-        await _memberRepo.UpdateAsync(member);
-        await _audit.LogAsync(requestingUserId, projectId, "member.role_updated", "project_members",
-            new { targetUserId, newRole = request.Role });
+            var githubPermission = MapRoleToGitHub(request.Role);
+            await _gitHubRepo.InviteCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername, githubPermission);
+        }
     }
 
     public async Task RemoveMemberAsync(Guid projectId, Guid targetUserId, Guid requestingUserId)
     {
-        await RequirePermissionAsync(projectId, requestingUserId, "manage_members");
-        await _memberRepo.RemoveAsync(projectId, targetUserId);
-        await _audit.LogAsync(requestingUserId, projectId, "member.removed", "project_members",
-            new { targetUserId });
+        var project = await GetOrThrowAsync(projectId);
+        await RequirePermissionAsync(project, requestingUserId, "manage_members");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException("Project is not registered in the Security Platform.");
+
+        await _securityPlatform.RevokeRoleAsync(project.AppId.Value, targetUserId);
+
+        var spUser = await _securityPlatform.GetUserAsync(targetUserId);
+        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
+            await _gitHubRepo.RemoveCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername);
+
+        var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(targetUserId);
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
+            await _apiTokenRepo.RevokeAsync(t.Id, "member_removed");
     }
 
-    private async Task RequireMembershipAsync(Guid projectId, Guid userId)
+    public async Task UpdateMemberRoleAsync(Guid projectId, Guid targetUserId, Guid requestingUserId, UpdateMemberRoleRequest request)
     {
-        var member = await _memberRepo.GetAsync(projectId, userId);
-        if (member is null)
-            throw new UnauthorizedAccessException("You are not a member of this project.");
+        var project = await GetOrThrowAsync(projectId);
+        await RequirePermissionAsync(project, requestingUserId, "manage_members");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException("Project is not registered in the Security Platform.");
+
+        await _securityPlatform.RevokeRoleAsync(project.AppId.Value, targetUserId);
+        await _securityPlatform.GrantRoleAsync(project.AppId.Value, targetUserId, request.Role);
+
+        var spUser = await _securityPlatform.GetUserAsync(targetUserId);
+        if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(spUser.GitHubUsername))
+        {
+            var githubPermission = MapRoleToGitHub(request.Role);
+            await _gitHubRepo.InviteCollaboratorAsync(project.GitHubRepo, spUser.GitHubUsername, githubPermission);
+        }
     }
 
-    private async Task RequirePermissionAsync(Guid projectId, Guid userId, string permission)
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private async Task<Domain.Entities.Project> GetOrThrowAsync(Guid projectId) =>
+        await _projectRepo.GetByIdAsync(projectId)
+        ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+    private async Task RequirePermissionAsync(Domain.Entities.Project project, Guid userId, string permission)
     {
-        var member = await _memberRepo.GetAsync(projectId, userId)
-            ?? throw new UnauthorizedAccessException("You are not a member of this project.");
-        var role = await _roleRepo.GetByIdAsync(projectId, member.ProjectRoleId)
-            ?? throw new UnauthorizedAccessException("Your project role could not be found.");
-        if (!role.Permissions.Contains(permission))
-            throw new UnauthorizedAccessException($"You do not have '{permission}' permission on this project.");
+        if (project.AppSlug is null) return;
+        var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, project.Id.ToString(), permission, userId);
+        if (!allowed) throw new UnauthorizedAccessException($"You do not have '{permission}' permission on this project.");
     }
+
+    private static string MapRoleToGitHub(string role) => role.ToLowerInvariant() switch
+    {
+        "owner" => "admin",
+        "developer" => "push",
+        _ => "pull"
+    };
 }

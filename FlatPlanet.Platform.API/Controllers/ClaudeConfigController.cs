@@ -23,7 +23,9 @@ public sealed class ClaudeConfigController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        var result = await _claudeConfigService.GenerateAsync(userId.Value, projectId, GetBaseUrl());
+        var userName = User.FindFirst("name")?.Value ?? string.Empty;
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var result = await _claudeConfigService.GenerateAsync(userId.Value, projectId, GetBaseUrl(), userName, userEmail);
         return Ok(ApiResponse<ClaudeConfigResponse>.Ok(result));
     }
 
@@ -33,7 +35,9 @@ public sealed class ClaudeConfigController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        var result = await _claudeConfigService.RegenerateAsync(userId.Value, projectId, GetBaseUrl());
+        var userName = User.FindFirst("name")?.Value ?? string.Empty;
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var result = await _claudeConfigService.RegenerateAsync(userId.Value, projectId, GetBaseUrl(), userName, userEmail);
         return Ok(ApiResponse<ClaudeConfigResponse>.Ok(result));
     }
 

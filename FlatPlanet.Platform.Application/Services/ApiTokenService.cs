@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using FlatPlanet.Platform.Application.DTOs.Iam;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
@@ -8,29 +7,13 @@ namespace FlatPlanet.Platform.Application.Services;
 
 public sealed class ApiTokenService(
     IApiTokenRepository tokenRepo,
-    IAppRepository appRepo,
-    IJwtService jwtService,
-    IUserRepository userRepo) : IApiTokenService
+    IJwtService jwtService) : IApiTokenService
 {
-    public async Task<ApiTokenResponse> CreateAsync(Guid userId, CreateApiTokenRequest request, string apiBaseUrl)
+    public async Task<ApiTokenResponse> CreateAsync(Guid userId, string userName, string userEmail, CreateApiTokenRequest request, string apiBaseUrl)
     {
-        var user = await userRepo.GetByIdAsync(userId)
-            ?? throw new InvalidOperationException("User not found.");
-
-        App? app = null;
-        string appSlug = "platform";
-        string? schema = null;
-
-        if (request.AppId.HasValue)
-        {
-            app = await appRepo.GetByIdAsync(request.AppId.Value)
-                ?? throw new InvalidOperationException("App not found.");
-            appSlug = app.Slug;
-            schema = app.SchemaName;
-        }
-
         var rawToken = jwtService.GenerateApiToken(
-            user, app?.Id, appSlug, schema,
+            userId, userName, userEmail,
+            request.AppId, "platform", null,
             request.Permissions, request.ExpiryDays, out var expiresAt);
 
         var tokenHash = TokenHasher.Hash(rawToken);
@@ -39,7 +22,7 @@ public sealed class ApiTokenService(
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            AppId = app?.Id,
+            AppId = request.AppId,
             Name = request.Name,
             TokenHash = tokenHash,
             Permissions = request.Permissions,

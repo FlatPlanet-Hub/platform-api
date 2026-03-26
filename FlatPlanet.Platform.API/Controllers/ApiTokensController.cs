@@ -17,7 +17,9 @@ public sealed class ApiTokensController(IApiTokenService apiTokenService) : ApiC
         if (userId is null) return Unauthorized();
 
         var apiBaseUrl = $"{Request.Scheme}://{Request.Host}";
-        var result = await apiTokenService.CreateAsync(userId.Value, request, apiBaseUrl);
+        var userName = User.FindFirst("name")?.Value ?? string.Empty;
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var result = await apiTokenService.CreateAsync(userId.Value, userName, userEmail, request, apiBaseUrl);
         return Ok(ApiResponse<ApiTokenResponse>.Ok(result));
     }
 

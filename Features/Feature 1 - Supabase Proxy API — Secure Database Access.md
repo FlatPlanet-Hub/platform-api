@@ -1,55 +1,86 @@
-# FlatPlanet.Platform — Feature 1: Supabase Proxy API — Secure Database Access
+# FlatPlanet Hub — Feature 1: DB Proxy — Secure Database Access
 
 ## What This Is
-A secure .NET 8 proxy API that sits between Claude Desktop (via MCP) and Supabase. Users never get direct database credentials. They authenticate with JWT tokens scoped to their project, and the API enforces access control per schema.
+A secure proxy that sits between Claude Code and Supabase PostgreSQL. Claude Code never gets direct database credentials. It authenticates with a project-scoped API token (generated in Feature 5 — CLAUDE.md) and the API enforces access control per project schema.
 
 ## Architecture
 ```
-Claude Desktop → MCP Server → This Proxy API (JWT auth) → Supabase Postgres
+Claude Code (reads CLAUDE.md) → HubApi (API token auth) → Supabase Postgres
+                                      ↓
+                              ProjectScopeMiddleware
+                              extracts schema + permissions from token
 ```
 
-Each user/project gets an isolated Postgres schema (e.g. `project_abc123`). The JWT token contains the user's allowed schema, project ID, and permissions. The API validates everything server-side before touching the database.
+Each project gets an isolated Postgres schema (e.g. `project_abc123`). The API token contains the user's allowed schema, project ID, and permissions. The API validates everything server-side before touching the database.
 
-## Tech Stack
-- .NET 8 Web API
-- Npgsql + Dapper for Postgres access
-- JWT Bearer authentication
-- Supabase Postgres as the database (connect via pooler on port 6543)
+---
 
-## Project Structure
-```
-SupabaseProxy/
-├── Program.cs
-├── appsettings.json
-├── Middleware/
-│   ├── ProjectScopeMiddleware.cs
-│   └── RateLimitMiddleware.cs
-├── Models/
-│   ├── CreateTableRequest.cs
-│   ├── AlterTableRequest.cs
-│   ├── SqlQueryRequest.cs
-│   └── ApiResponse.cs
-├── Services/
-│   ├── IDbProxyService.cs
-│   └── DbProxyService.cs
-└── Controllers/
-    ├── SchemaController.cs
-    ├── QueryController.cs
-    └── MigrationController.cs
-```
+## How Auth Works for DB Proxy Calls
+
+Claude Code uses the **API token** from CLAUDE.md — NOT the user's Security Platform JWT. These are different tokens with different purposes:
+
+| Token | Issued by | Used for | Lifetime |
+|-------|-----------|----------|----------|
+| Security Platform JWT | Security Platform | User auth in frontend/HubApi | 60 min |
+| HubApi API Token | HubApi | Claude Code DB proxy calls | 30 days |
+
+The `ProjectScopeMiddleware` reads the API token from the `Authorization: Bearer` header, validates it, and extracts:
+- `schema` — the project's isolated Postgres schema name
+- `project_id` — the project UUID
+- `permissions` — what Claude Code is allowed to do (`read`, `write`, `ddl`)
+
+---
 
 ## API Endpoints
 
-All endpoints require a valid JWT with project scope.
+All endpoints require a valid API token (from CLAUDE.md). Routes are scoped under the project.
 
-### Schema / Data Dictionary (requires "read" permission)
-- `GET /api/schema/tables` — List all tables in user's schema
-- `GET /api/schema/columns?table={name}` — Get columns (all or per table)
-- `GET /api/schema/relationships` — Get foreign key relationships
-- `GET /api/schema/full` — Full data dictionary (tables + columns + relationships combined)
+### Schema
+Requires `read` permission.
 
-### Migrations / DDL (requires "ddl" permission)
-- `POST /api/migration/create-table` — Create a new table
+- `GET /api/projects/{projectId}/schema/tables` — List all tables in project schema
+- `GET /api/projects/{projectId}/schema/columns?table={name}` — Get columns for a table
+- `GET /api/projects/{projectId}/schema/relationships` — Get foreign key relationships
+- `GET /api/projects/{projectId}/schema/full` — Full schema (tables + columns + relationships)
+
+### Naming Convention Dictionary
+
+The `data_dictionary` table lives in the `public` schema in Supabase and is accessible to Claude Code
+via the standard read/write query endpoints. Because `DbProxyService` sets `search_path` to
+`{project_schema}, public`, queries against `data_dictionary` resolve without a schema prefix.
+
+Claude Code **must** query this table before naming any table, column, variable, or function
+(see CLAUDE.md Step 0 in Feature 5).
+
+| `source` value | Meaning |
+|---|---|
+| `standard` | Enterprise-approved names, populated by the platform team |
+| `project` | Names added by Claude Code during a project — use these when no standard exists |
+
+Key columns: `field_name` (the approved name), `data_type`, `format`, `description`, `example`,
+`entity` (which table/entity it belongs to), `category` (default `'field'`), `is_required`.
+
+### Queries
+- `POST /api/projects/{projectId}/query/read` — Run SELECT queries (requires `read`)
+  ```json
+  {
+    "sql": "SELECT * FROM customers WHERE created_at > @since LIMIT @limit",
+    "parameters": { "since": "2025-01-01", "limit": 50 }
+  }
+  ```
+- `POST /api/projects/{projectId}/query/write` — Run INSERT/UPDATE/DELETE (requires `write`)
+  ```json
+  {
+    "sql": "INSERT INTO customers (name, email) VALUES (@name, @email)",
+    "parameters": { "name": "John", "email": "john@example.com" }
+  }
+  ```
+
+### Migrations / DDL
+Requires `ddl` permission.
+
+- `POST /api/projects/{projectId}/migration/create-schema` — Initialize project schema (called once on project creation)
+- `POST /api/projects/{projectId}/migration/create-table`
   ```json
   {
     "tableName": "customers",
@@ -62,65 +93,26 @@ All endpoints require a valid JWT with project scope.
     "enableRls": true
   }
   ```
-- `PUT /api/migration/alter-table` — Add/drop/rename columns
-- `DELETE /api/migration/drop-table?table={name}` — Drop a table
-- `POST /api/migration/create-schema` — Initialize the project schema
+- `PUT /api/projects/{projectId}/migration/alter-table` — Add/drop/rename/retype columns
+- `DELETE /api/projects/{projectId}/migration/drop-table?table={name}` — Drop a table
 
-### Queries
-- `POST /api/query/read` — Run SELECT queries (requires "read")
-  ```json
-  {
-    "sql": "SELECT * FROM customers WHERE created_at > @since LIMIT @limit",
-    "parameters": { "since": "2025-01-01", "limit": 50 }
-  }
-  ```
-- `POST /api/query/write` — Run INSERT/UPDATE/DELETE (requires "write")
-
-## JWT Token Structure (issued by Feature 6 IAM)
-The token claims this API expects:
-```json
-{
-  "sub": "user-uuid",
-  "email": "user@example.com",
-  "company_id": "company-uuid",
-  "apps": [
-    {
-      "app_id": "app-uuid",
-      "app_slug": "current-project",
-      "schema": "project_abc123",
-      "roles": ["developer"],
-      "permissions": ["read", "write", "ddl"]
-    }
-  ]
-}
-```
-
-For API tokens (Claude/service use), the structure is simpler:
-```json
-{
-  "sub": "user-uuid",
-  "app_id": "app-uuid",
-  "schema": "project_abc123",
-  "permissions": ["read", "write", "ddl"],
-  "token_type": "api_token"
-}
-```
-
-All user records, roles, and permissions are managed by Feature 6 (Flat Planet IAM). This API only validates the JWT and enforces the permissions contained in it.
+---
 
 ## Security Requirements
-1. **Schema isolation** — Every query MUST set `search_path` to the user's schema from JWT before execution.
-2. **Schema name validation** — Must match `^[a-z][a-z0-9_]{2,62}$` and start with `project_`.
-3. **Identifier validation** — All table/column names validated against `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`.
-4. **Read query blocking** — Block DDL/DML keywords (DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE, GRANT, REVOKE) in read endpoints.
-5. **Write query blocking** — Block DDL keywords (DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE) in write endpoints.
-6. **Permission enforcement** — Check JWT `permissions` claim before allowing any operation.
-7. **Parameterized queries** — Use Dapper parameterization for all user-provided values.
-8. **No connection string exposure** — Supabase credentials only in appsettings.json.
-9. **Rate limiting** — Per user, per endpoint.
-10. **Audit logging** — Log every DDL and write operation to `platform.audit_log`.
 
-## Response Format (all endpoints)
+1. **Schema isolation** — Every query sets `search_path` to the project's schema before execution
+2. **Schema name validation** — Must match `^project_[a-z][a-z0-9_]{2,62}$`
+3. **Identifier validation** — All table/column names validated against `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`
+4. **Read query blocking** — Block DDL/DML keywords (DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE, GRANT, REVOKE) in read endpoints
+5. **Write query blocking** — Block DDL keywords (DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE) in write endpoints
+6. **Permission enforcement** — Check token `permissions` claim before every operation
+7. **Parameterized queries** — All user-provided values go through Dapper parameterization — never concatenated
+8. **Default expression whitelist** — Column defaults restricted to exact matches: `now()`, `gen_random_uuid()`, `true`, `false`, `null`, or numeric literals
+9. **Audit logging** — All DDL and write operations logged
+
+---
+
+## Response Format
 ```json
 {
   "success": true,
@@ -129,31 +121,3 @@ All user records, roles, and permissions are managed by Feature 6 (Flat Planet I
   "error": null
 }
 ```
-
-## appsettings.json
-```json
-{
-  "Jwt": {
-    "Issuer": "your-platform",
-    "Audience": "claude-mcp",
-    "SecretKey": "CHANGE_ME_MIN_32_CHARACTERS_LONG!!"
-  },
-  "Supabase": {
-    "Host": "aws-0-us-east-1.pooler.supabase.com",
-    "Port": 6543,
-    "Database": "postgres",
-    "AdminUser": "postgres.YOUR_PROJECT_REF",
-    "AdminPassword": "YOUR_SUPABASE_DB_PASSWORD"
-  },
-  "AllowedSchemaPrefix": "project_"
-}
-```
-
-## Additional Requirements
-- Add Swagger/OpenAPI documentation
-- Health check at `GET /health`
-- CORS configuration
-- Request/response logging (mask sensitive data)
-- Global exception handler middleware
-- Unit tests for validation logic
-- Dependency injection for all services

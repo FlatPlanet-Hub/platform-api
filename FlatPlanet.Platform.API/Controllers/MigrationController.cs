@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FlatPlanet.Platform.API.Middleware;
@@ -8,7 +7,7 @@ using FlatPlanet.Platform.Application.Interfaces;
 
 namespace FlatPlanet.Platform.API.Controllers;
 
-[Route("api/migration")]
+[Route("api/projects/{projectId:guid}/migration")]
 [Authorize]
 public sealed class MigrationController : ApiControllerBase
 {
@@ -118,8 +117,7 @@ public sealed class MigrationController : ApiControllerBase
     {
         try
         {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            await _repoService.SyncDataDictionaryAsync(userId, Guid.Parse(claims.ProjectId), claims.Schema);
+            await _repoService.SyncDataDictionaryAsync(Guid.Parse(claims.ProjectId), claims.Schema);
         }
         catch
         {
