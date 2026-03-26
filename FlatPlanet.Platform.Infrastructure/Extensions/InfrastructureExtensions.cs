@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Application.Services;
 using FlatPlanet.Platform.Infrastructure.Configuration;
@@ -19,32 +20,41 @@ public static class InfrastructureExtensions
         services.Configure<SupabaseSettings>(opts => configuration.GetSection("Supabase").Bind(opts));
         services.Configure<GitHubSettings>(opts => configuration.GetSection("GitHub").Bind(opts));
         services.Configure<EncryptionSettings>(opts => configuration.GetSection("Encryption").Bind(opts));
-
-        var spSettings = configuration.GetSection("SecurityPlatform").Get<SecurityPlatformSettings>()
-            ?? new SecurityPlatformSettings();
-        services.AddHttpClient("SecurityPlatform", client =>
-        {
-            client.BaseAddress = new Uri(spSettings.BaseUrl.TrimEnd('/') + "/");
-            client.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", spSettings.ServiceToken);
-        });
-        services.AddScoped<ISecurityPlatformService, SecurityPlatformService>();
+        services.Configure<SecurityPlatformSettings>(opts =>
+            configuration.GetSection("SecurityPlatform").Bind(opts));
 
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IAuditService, AuditService>();
+        services.AddHttpContextAccessor();
 
-        // DB Proxy
-        services.AddScoped<IDbProxyService, DbProxyService>();
-
-        // GitHub
-        services.AddScoped<IGitHubRepoService, GitHubRepoService>();
-
-        // Repositories
+        // Repositories (HubApi owns only these two)
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IApiTokenRepository, ApiTokenRepository>();
+
+        // DB proxy (Feature 1)
+        services.AddScoped<IDbProxyService, DbProxyService>();
+
+        // GitHub (service token only)
+        services.AddScoped<IGitHubRepoService, GitHubRepoService>();
+
+        // Security Platform HTTP clients
+        services.AddHttpClient("SecurityPlatform", (sp, client) =>
+        {
+            var s = sp.GetRequiredService<IOptions<SecurityPlatformSettings>>().Value;
+            client.BaseAddress = new Uri(s.BaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", s.ServiceToken);
+        });
+        services.AddHttpClient("SecurityPlatformUser", (sp, client) =>
+        {
+            var s = sp.GetRequiredService<IOptions<SecurityPlatformSettings>>().Value;
+            client.BaseAddress = new Uri(s.BaseUrl.TrimEnd('/') + "/");
+            // Authorization header set per-request in SecurityPlatformService.AuthorizeAsync
+        });
+        services.AddScoped<ISecurityPlatformService, SecurityPlatformService>();
 
         // Application services
         services.AddScoped<IProjectService, ProjectService>();

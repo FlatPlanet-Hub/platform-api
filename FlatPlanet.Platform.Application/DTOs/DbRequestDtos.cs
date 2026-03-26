@@ -2,14 +2,6 @@ using FlatPlanet.Platform.Domain.ValueObjects;
 
 namespace FlatPlanet.Platform.Application.DTOs;
 
-public sealed class GenerateTokenRequest
-{
-    public string UserId { get; init; } = string.Empty;
-    public string ProjectId { get; init; } = string.Empty;
-    public string Schema { get; init; } = string.Empty;
-    public string Permissions { get; init; } = string.Empty;
-}
-
 public sealed class ReadQueryRequest
 {
     public string Sql { get; init; } = string.Empty;

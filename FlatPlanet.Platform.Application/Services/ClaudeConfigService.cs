@@ -117,8 +117,8 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         if (project.AppId is null)
             throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
-        var appRoles = await _securityPlatform.GetUserAppRolesAsync(userId);
-        var roleEntry = appRoles.FirstOrDefault(r => r.AppId == project.AppId.Value);
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+        var roleEntry = appAccess.FirstOrDefault(r => r.AppId == project.AppId.Value);
 
         if (roleEntry is null)
             throw new UnauthorizedAccessException("You do not have access to this project.");

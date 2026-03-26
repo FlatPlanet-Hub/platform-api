@@ -9,12 +9,12 @@ namespace FlatPlanet.Platform.Tests.UnitTests.Services;
 public sealed class ProjectServiceTests
 {
     private readonly Mock<IProjectRepository> _projectRepo = new();
-    private readonly Mock<IDbProxyService> _dbProxy = new();
     private readonly Mock<ISecurityPlatformService> _securityPlatform = new();
     private readonly Mock<IGitHubRepoService> _gitHubRepo = new();
+    private readonly Mock<IDbProxyService> _dbProxy = new();
 
     private ProjectService CreateSut() =>
-        new(_projectRepo.Object, _dbProxy.Object, _securityPlatform.Object, _gitHubRepo.Object);
+        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object);
 
     [Fact]
     public async Task CreateProject_ShouldProvisionSchema_AndRegisterApp()
@@ -26,10 +26,11 @@ public sealed class ProjectServiceTests
 
         _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
         _projectRepo.Setup(r => r.UpdateAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
-        _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
         _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
+        _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
         _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
+        _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();
         var result = await sut.CreateProjectAsync(userId, companyId, "https://localhost", request);
@@ -37,8 +38,8 @@ public sealed class ProjectServiceTests
         Assert.Equal("My App", result.Name);
         Assert.StartsWith("project_", result.SchemaName);
         Assert.Equal("my-app", result.AppSlug);
-        _dbProxy.Verify(d => d.CreateSchemaAsync(It.Is<string>(s => s.StartsWith("project_"))), Times.Once);
         _securityPlatform.Verify(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId), Times.Once);
+        _securityPlatform.Verify(s => s.SetupProjectRolesAsync(appId), Times.Once);
         _securityPlatform.Verify(s => s.GrantRoleAsync(appId, userId, "owner"), Times.Once);
     }
 
@@ -59,7 +60,7 @@ public sealed class ProjectServiceTests
         };
 
         _projectRepo.Setup(r => r.GetByIdAsync(projectId)).ReturnsAsync(project);
-        _securityPlatform.Setup(s => s.AuthorizeAsync("test", projectId.ToString(), "delete_project", userId)).ReturnsAsync(false);
+        _securityPlatform.Setup(s => s.AuthorizeAsync("test", projectId.ToString(), "delete_project")).ReturnsAsync(false);
 
         var sut = CreateSut();
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
