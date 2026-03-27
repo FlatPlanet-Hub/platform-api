@@ -9,5 +9,5 @@ public sealed class SupabaseSettings
     public string AdminPassword { get; init; } = string.Empty;
 
     public string BuildConnectionString() =>
-        $"Host={Host};Port={Port};Database={Database};Username={AdminUser};Password={AdminPassword};SSL Mode=Require;Trust Server Certificate=true;Keepalive=30;Connection Idle Lifetime=300;";
+        $"Host={Host};Port={Port};Database={Database};Username={AdminUser};Password={AdminPassword};SSL Mode=Require;Trust Server Certificate=true;No Reset On Close=true;Minimum Pool Size=0;Maximum Pool Size=10;";
 }
