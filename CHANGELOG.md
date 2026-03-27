@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [0.8.2] — 2026-03-27
+
+### Docs
+- **Corrected error codes in `docs/api-reference.md`** based on `GlobalExceptionMiddleware` mapping
+  - `InvalidOperationException` → `409` (not `422`) — affects all Claude Config endpoints when project has no `appSlug`
+  - Postgres execution errors (syntax, constraint violations, `SetNotNull` on nullable data) → `500` (unhandled, not `422`)
+  - Removed `422` entirely from the error reference table — it has no middleware mapping
+  - Added `GlobalExceptionMiddleware` exception-to-HTTP-code mapping table to the Error Reference section
+  - Added `500` guidance note for query/migration failures
+- Bumped reference version to 0.8.2
+
+---
+
 ## [0.8.1] — 2026-03-27
 
 ### Docs

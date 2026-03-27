@@ -1,6 +1,6 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 0.8.0
+**Version:** 0.8.2
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
@@ -813,7 +813,7 @@ Generates a `CLAUDE.md` file content and a 30-day API token for Claude Code. If 
 | `401` | Missing or invalid JWT |
 | `403` | User does not have access to this project |
 | `404` | Project not found |
-| `422` | Project has no `appSlug` — legacy project not registered with Security Platform |
+| `409` | Project has no `appSlug` — legacy project not registered with Security Platform |
 
 ---
 
@@ -842,7 +842,7 @@ Revokes the current API token and issues a new one. Returns fresh CLAUDE.md cont
 | `401` | Missing or invalid JWT |
 | `403` | User does not have access to this project |
 | `404` | Project not found |
-| `422` | Project has no `appSlug` |
+| `409` | Project has no `appSlug` — legacy project not registered with Security Platform |
 
 **Notes:**
 - The old token is immediately invalidated. Any Claude Code session using the old token will receive `401` on the next request.
@@ -882,7 +882,7 @@ Revokes the active API token for this project without issuing a replacement.
 | `401` | Missing or invalid JWT |
 | `403` | User does not have access to this project |
 | `404` | Project not found |
-| `422` | Project has no `appSlug` |
+| `409` | Project has no `appSlug` — legacy project not registered with Security Platform |
 
 ---
 
@@ -1259,7 +1259,7 @@ Modifies an existing table's columns.
 | `401` | Missing or expired token |
 | `403` | Token lacks `ddl` permission |
 | `404` | Table or column does not exist |
-| `422` | `SetNotNull` on a column that contains null values |
+| `500` | `SetNotNull` on a column that contains null values — Postgres raises an error, propagated as 500 |
 
 **Notes:**
 - Operations are applied in the order given. If one fails, subsequent operations in the same request are not applied.
@@ -1365,7 +1365,7 @@ Executes a parameterized `SELECT` query against the project schema.
 | `400` | SQL contains blocked keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`) |
 | `401` | Missing or expired token |
 | `403` | Token lacks `read` permission |
-| `422` | SQL syntax error or query execution failure |
+| `500` | SQL syntax error or query execution failure — Postgres exceptions are unhandled and propagate as 500 |
 
 **Notes:**
 - `search_path` is automatically set to the project schema before execution — do not prefix table names with the schema name.
@@ -1420,7 +1420,7 @@ Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project sch
 | `400` | SQL contains blocked DDL keywords |
 | `401` | Missing or expired token |
 | `403` | Token lacks `write` permission |
-| `422` | SQL syntax error, constraint violation, or execution failure |
+| `500` | SQL syntax error, constraint violation, or execution failure — Postgres exceptions propagate as 500 |
 
 **Notes:**
 - `rowsAffected` reflects the number of rows changed.
@@ -1460,11 +1460,22 @@ All endpoints return a consistent envelope:
 | `401` | Unauthorized | Missing `Authorization` header, expired JWT, revoked API token |
 | `403` | Forbidden | Valid token but insufficient permission; Security Platform denied the action; invalid or missing schema claim on API token |
 | `404` | Not Found | Project, member, or resource does not exist; or the caller has no visibility into it |
-| `409` | Conflict | Duplicate project slug, user already a member |
-| `422` | Unprocessable | Semantic error — SQL syntax failure, constraint violation, `SetNotNull` on nullable data, legacy project missing `appSlug` |
-| `500` | Server Error | Unexpected failure — report with request ID if available |
+| `409` | Conflict | Duplicate project slug; user already a member; `InvalidOperationException` in a service (e.g. project has no `appSlug`) |
+| `500` | Server Error | Unhandled exception — Postgres errors (syntax, constraint violations, `SetNotNull` on nullable data) propagate as 500 |
 | `502` | Bad Gateway | Security Platform unreachable or returned an unexpected error |
 
+Error code mapping is driven by `GlobalExceptionMiddleware`:
+
+| Exception type | HTTP code |
+|---|---|
+| `KeyNotFoundException` | 404 |
+| `UnauthorizedAccessException` | 403 |
+| `ValidationException` / `ArgumentException` | 400 |
+| `InvalidOperationException` | 409 |
+| Anything else (incl. Postgres errors) | 500 |
+
 **On `403` from DB Proxy endpoints:** Almost always means the API token's `permissions` claim does not include the required permission (e.g., running a write query with a `read`-only token). Regenerate the token via `POST /api/projects/{id}/claude-config/regenerate`.
+
+**On `500` from query/migration endpoints:** Check your SQL for syntax errors and verify column types and constraints before retrying.
 
 **On `502`:** The Security Platform is a hard dependency for project creation, member management, and permission checks. Schema, Migration, and Query endpoints are unaffected — they rely on API tokens only.
