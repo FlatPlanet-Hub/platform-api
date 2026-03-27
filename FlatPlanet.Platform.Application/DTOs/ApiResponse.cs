@@ -1,10 +1,14 @@
+using System.Text.Json.Serialization;
+
 namespace FlatPlanet.Platform.Application.DTOs;
 
 public sealed class ApiResponse<T>
 {
     public bool Success { get; init; }
     public T? Data { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RowsAffected { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
 
     public static ApiResponse<T> Ok(T data, int? rowsAffected = null) =>
