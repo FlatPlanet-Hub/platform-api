@@ -62,9 +62,23 @@ public sealed class ProjectService : IProjectService
     public async Task<IEnumerable<ProjectResponse>> GetUserProjectsAsync(Guid userId)
     {
         var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase));
+
+        if (canViewAll)
+        {
+            var all = await _projectRepo.GetAllAsync();
+            return all.Select(p =>
+            {
+                var entry = appAccess.FirstOrDefault(a => a.AppId == p.AppId);
+                return ToResponse(p, entry?.RoleName ?? "admin");
+            });
+        }
+
         var appIds = appAccess.Select(a => a.AppId).ToList();
         var projects = await _projectRepo.GetByAppIdsAsync(appIds);
-
         return projects.Select(p =>
         {
             var entry = appAccess.FirstOrDefault(a => a.AppId == p.AppId);

@@ -35,6 +35,13 @@ public sealed class ProjectRepository : IProjectRepository
         return await conn.QueryAsync<Project>(sql, new { appIds = appIds.ToArray() });
     }
 
+    public async Task<IEnumerable<Project>> GetAllAsync()
+    {
+        await using var conn = _db.CreateConnection();
+        return await conn.QueryAsync<Project>(
+            "SELECT * FROM platform.projects WHERE is_active = true ORDER BY created_at DESC");
+    }
+
     public async Task<Project> CreateAsync(Project project)
     {
         await using var conn = _db.CreateConnection();
