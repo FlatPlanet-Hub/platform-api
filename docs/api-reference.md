@@ -1,6 +1,6 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 0.8.2
+**Version:** 0.8.3
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
@@ -335,6 +335,7 @@ Returns all projects the authenticated user has access to. Access is determined 
 **Notes:**
 - `members` is always `null` on list responses. Use `GET /api/projects/{id}/members` to fetch members.
 - Projects with `appSlug: null` are legacy entries created before the Security Platform migration. These have limited functionality.
+- **Admin override:** Users with the `view_all_projects` permission on the `dashboard-hub` app receive every project regardless of membership. Their `roleName` is `"admin"` for projects they are not explicitly a member of.
 
 ---
 
@@ -449,6 +450,9 @@ Returns a single project by ID.
 | `401` | Missing or invalid JWT |
 | `403` | User does not have access to this project |
 | `404` | Project not found |
+
+**Notes:**
+- **Admin override:** Users with the `view_all_projects` permission on the `dashboard-hub` app bypass the Security Platform authorization check and can retrieve any project. Their `roleName` is `"admin"` if they are not an explicit member of the project.
 
 ---
 

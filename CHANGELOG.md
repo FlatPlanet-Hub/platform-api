@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [0.8.3] — 2026-03-27
+
+### Added
+- **`view_all_projects` admin permission** — users with this permission on the `dashboard-hub` app now see all projects in `GET /api/projects`, bypassing the normal SP membership filter. Their `roleName` is `"admin"` for projects they are not explicitly a member of.
+
+### Fixed
+- **`GET /api/projects/{id}` admin bypass** — `GetProjectAsync` now skips the SP `authorize` check for `view_all_projects` users, consistent with the list endpoint. Previously, they would receive `403` even though `GET /api/projects` showed the project.
+
+### Docs
+- Updated `docs/api-reference.md` [0.8.3]: documented admin override behavior on List Projects and Get Project endpoints
+
+---
+
 ## [0.8.2] — 2026-03-27
 
 ### Docs
