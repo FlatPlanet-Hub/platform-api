@@ -89,15 +89,21 @@ public sealed class ProjectService : IProjectService
     public async Task<ProjectResponse> GetProjectAsync(Guid projectId, Guid userId)
     {
         var project = await GetOrThrowAsync(projectId);
-        if (project.AppSlug is not null)
+
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase));
+
+        if (!canViewAll && project.AppSlug is not null)
         {
             var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read");
             if (!allowed) throw new UnauthorizedAccessException("You do not have read access to this project.");
         }
 
-        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
         var entry = appAccess.FirstOrDefault(a => a.AppId == project.AppId);
-        return ToResponse(project, entry?.RoleName);
+        return ToResponse(project, entry?.RoleName ?? (canViewAll ? "admin" : null));
     }
 
     public async Task<ProjectResponse> UpdateProjectAsync(Guid projectId, Guid userId, UpdateProjectRequest request)
