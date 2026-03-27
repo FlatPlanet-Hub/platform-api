@@ -10,41 +10,42 @@
 ## Table of Contents
 
 1. [Authentication Overview](#authentication-overview)
-2. [Auth — Current User](#auth--current-user)
-3. [API Tokens](#api-tokens)
+2. [Health Check](#health-check)
+3. [Auth — Current User](#auth--current-user)
+4. [API Tokens](#api-tokens)
    - [Create Token](#create-token)
    - [List Tokens](#list-tokens)
    - [Revoke Token](#revoke-token-1)
-4. [Projects](#projects)
+5. [Projects](#projects)
    - [List Projects](#list-projects)
    - [Create Project](#create-project)
    - [Get Project](#get-project)
    - [Update Project](#update-project)
    - [Deactivate Project](#deactivate-project)
-5. [Project Members](#project-members)
+6. [Project Members](#project-members)
    - [List Members](#list-members)
    - [Add Member](#add-member)
    - [Update Member Role](#update-member-role)
    - [Remove Member](#remove-member)
-6. [Claude Config](#claude-config)
+7. [Claude Config](#claude-config)
    - [Get Config](#get-config)
    - [Regenerate Token](#regenerate-token)
    - [Revoke Token](#revoke-token-2)
-7. [DB Proxy — Schema](#db-proxy--schema)
+8. [DB Proxy — Schema](#db-proxy--schema)
    - [List Tables](#list-tables)
    - [Get Columns](#get-columns)
    - [Get Relationships](#get-relationships)
    - [Full Schema](#full-schema)
-8. [DB Proxy — Migrations](#db-proxy--migrations)
+9. [DB Proxy — Migrations](#db-proxy--migrations)
    - [Create Schema](#create-schema)
    - [Create Table](#create-table)
    - [Alter Table](#alter-table)
    - [Drop Table](#drop-table)
-9. [DB Proxy — Queries](#db-proxy--queries)
-   - [Read Query](#read-query)
-   - [Write Query](#write-query)
-10. [Standard Response Envelope](#standard-response-envelope)
-11. [Error Reference](#error-reference)
+10. [DB Proxy — Queries](#db-proxy--queries)
+    - [Read Query](#read-query)
+    - [Write Query](#write-query)
+11. [Standard Response Envelope](#standard-response-envelope)
+12. [Error Reference](#error-reference)
 
 ---
 
@@ -70,6 +71,21 @@ HubApi accepts two token types. The `token_type` JWT claim determines routing:
 > **Critical:** The DB Proxy endpoints (`/schema`, `/migration`, `/query`) only accept API Tokens — Security Platform JWTs are rejected with `403`. The `ProjectScopeMiddleware` blocks requests before they reach the controller if the token is missing or has an invalid schema claim.
 
 > **JWT claim names:** HubApi sets `MapInboundClaims = false`, so claims are read exactly as they appear in the token — `sub`, `email`, `full_name`, `company_id`, etc. ASP.NET's default mapping (which renames `sub` → `ClaimTypes.NameIdentifier`) is disabled. Use claim names exactly as listed in this document.
+
+---
+
+## Health Check
+
+### `GET /health`
+
+Returns the service health status. No auth required. Used by load balancers and uptime monitors.
+
+**Success Response `200`:**
+```json
+{
+  "status": "Healthy"
+}
+```
 
 ---
 
