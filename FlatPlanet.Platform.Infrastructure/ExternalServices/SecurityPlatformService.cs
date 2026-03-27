@@ -149,8 +149,10 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
 
     public async Task<IEnumerable<SpAppAccessDto>> GetUserAppAccessAsync(Guid userId)
     {
-        var result = await ServiceClient.GetFromJsonAsync<SpResponse<SpUserDto>>(
-            $"api/v1/users/{userId}");
+        var response = await ServiceClient.GetAsync($"api/v1/users/{userId}");
+        if (response.StatusCode == HttpStatusCode.NotFound) return [];
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<SpResponse<SpUserDto>>();
         return result?.Data?.AppAccess ?? [];
     }
 

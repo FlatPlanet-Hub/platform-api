@@ -78,6 +78,7 @@ public sealed class ProjectService : IProjectService
         }
 
         var appIds = appAccess.Select(a => a.AppId).ToList();
+        if (appIds.Count == 0) return [];
         var projects = await _projectRepo.GetByAppIdsAsync(appIds);
         return projects.Select(p =>
         {
