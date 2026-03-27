@@ -79,7 +79,7 @@ Edit `FlatPlanet.Platform.API/appsettings.json` or supply via environment variab
 }
 ```
 
-> **Never commit real credentials.** Use environment variables or secrets management in production.
+> **Never commit real credentials.** Use environment variables, secrets management in production, or `dotnet user-secrets` for local development (a `UserSecretsId` is configured in the API project).
 
 ### Run
 
@@ -94,7 +94,7 @@ API docs: `https://localhost:{port}/scalar` (development only)
 
 ## API Surface
 
-Full endpoint reference with request/response payloads: [`docs/api-reference.md`](docs/api-reference.md)
+Full endpoint reference with request/response payloads: [`docs/platform-api-reference.md`](docs/platform-api-reference.md)
 
 ### Auth
 

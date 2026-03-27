@@ -1,6 +1,6 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 0.8.3
+**Version:** 0.8.4
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
@@ -68,6 +68,8 @@ HubApi accepts two token types. The `token_type` JWT claim determines routing:
 **HubApi API Token** — generated via `GET /api/projects/{id}/claude-config` or `POST /api/auth/api-tokens`. Carries flat `schema`, `permissions`, and `app_slug` claims. Required for all Schema, Migration, and Query endpoints.
 
 > **Critical:** The DB Proxy endpoints (`/schema`, `/migration`, `/query`) only accept API Tokens — Security Platform JWTs are rejected with `403`. The `ProjectScopeMiddleware` blocks requests before they reach the controller if the token is missing or has an invalid schema claim.
+
+> **JWT claim names:** HubApi sets `MapInboundClaims = false`, so claims are read exactly as they appear in the token — `sub`, `email`, `full_name`, `company_id`, etc. ASP.NET's default mapping (which renames `sub` → `ClaimTypes.NameIdentifier`) is disabled. Use claim names exactly as listed in this document.
 
 ---
 
@@ -272,8 +274,7 @@ Immediately revokes an API token. Subsequent requests using this token will rece
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -335,6 +336,7 @@ Returns all projects the authenticated user has access to. Access is determined 
 **Notes:**
 - `members` is always `null` on list responses. Use `GET /api/projects/{id}/members` to fetch members.
 - Projects with `appSlug: null` are legacy entries created before the Security Platform migration. These have limited functionality.
+- **New users:** If the Security Platform has no record for the user (SP returns `404`), this endpoint returns an empty array rather than erroring.
 - **Admin override:** Users with the `view_all_projects` permission on the `dashboard-hub` app receive every project regardless of membership. Their `roleName` is `"admin"` for projects they are not explicitly a member of.
 
 ---
@@ -529,8 +531,7 @@ Soft-deactivates a project. Sets `isActive = false`. Requires `delete_project` p
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -644,8 +645,7 @@ Grants a user access to the project with a specified role. Optionally adds them 
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -702,8 +702,7 @@ Changes an existing member's role.
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -745,8 +744,7 @@ Removes a user from the project, revokes their Security Platform role, and revok
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -874,8 +872,7 @@ Revokes the active API token for this project without issuing a replacement.
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -1073,7 +1070,7 @@ All migration endpoints require an **API Token** with `ddl` permission.
 
 After every DDL operation, HubApi syncs `DATA_DICTIONARY.md` to the project's GitHub repo (fire-and-forget — a GitHub failure never rolls back a successful DDL).
 
-All migration endpoints return `200` with `"data": null` on success.
+All migration endpoints return `200` with no payload on success (`{ "success": true }`).
 
 ---
 
@@ -1093,8 +1090,7 @@ Initializes the project's Postgres schema. Run this once after project creation,
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -1169,8 +1165,7 @@ Creates a new table in the project schema.
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -1250,8 +1245,7 @@ Modifies an existing table's columns.
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -1293,8 +1287,7 @@ Drops a table from the project schema. Irreversible — all data is permanently 
 
 ```json
 {
-  "success": true,
-  "data": null
+  "success": true
 }
 ```
 
@@ -1412,7 +1405,6 @@ Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project sch
 ```json
 {
   "success": true,
-  "data": null,
   "rowsAffected": 1
 }
 ```
@@ -1436,23 +1428,45 @@ Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project sch
 
 ## Standard Response Envelope
 
-All endpoints return a consistent envelope:
+All endpoints return a consistent envelope. **Null fields are omitted from the serialized response** — do not expect `"data": null` or `"error": null` to be present.
 
+**Success with data:**
 ```json
 {
   "success": true,
-  "data": { ... },
-  "rowsAffected": null,
-  "error": null
+  "data": { ... }
+}
+```
+
+**Success with no data (void operations):**
+```json
+{
+  "success": true
+}
+```
+
+**Success with rows affected (write queries):**
+```json
+{
+  "success": true,
+  "rowsAffected": 1
+}
+```
+
+**Error:**
+```json
+{
+  "success": false,
+  "error": "Human-readable message"
 }
 ```
 
 | Field | Present when | Description |
 |---|---|---|
-| `success` | Always | `true` on success, `false` on error |
-| `data` | Success | Response payload. `null` for operations with no return value. |
-| `rowsAffected` | Write queries only | Number of rows affected. |
-| `error` | Failure | Human-readable error message. Do not parse this string — treat it as opaque. |
+| `success` | Always | `true` on success, `false` on failure |
+| `data` | Success + has payload | Response data. **Omitted** when the operation returns no value. |
+| `rowsAffected` | Write query success | Number of rows affected. **Omitted** on all other responses. |
+| `error` | Failure | Human-readable error message. Do not parse this string — treat it as opaque. **Omitted** on success. |
 
 ---
 

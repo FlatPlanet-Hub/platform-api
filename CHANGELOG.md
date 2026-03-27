@@ -5,6 +5,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [0.8.4] — 2026-03-27
+
+### Changed
+- **Response envelope** — `rowsAffected` and `error` are now omitted from the JSON response when null (`JsonIgnore(WhenWritingNull)`). `WhenWritingNull` applied globally via `AddJsonOptions`. Void endpoints return `{ "success": true }` only — no `"data": null`.
+- **JWT claim mapping disabled** — `MapInboundClaims = false` set on JWT Bearer options. Claims are now read exactly as issued (`sub`, `email`, `full_name`, etc.). ASP.NET's default mapping that renames `sub` → `NameIdentifier` is no longer active.
+- **Renamed** `docs/api-reference.md` → `docs/platform-api-reference.md`
+- **`UserSecretsId`** added to `FlatPlanet.Platform.API.csproj` — use `dotnet user-secrets` for local dev credentials
+
+### Fixed
+- **`GET /api/projects` — empty list for new users** — `GetUserAppAccessAsync` now handles SP `404` (user not yet registered) gracefully, returning an empty list. Previously threw an unhandled exception.
+- **`GET /api/projects` — empty `appIds` crash** — added early return when the user has no app access, preventing `GetByAppIdsAsync(empty list)` from reaching the DB.
+- **Npgsql connection pool** — tuned for Supabase PgBouncer compatibility: disabled keepalive, disabled reset-on-close, reduced pool size. Prevents stale connection errors on idle periods.
+
+### Database
+- Migration `007_drop_stale_api_tokens_fks.sql` — drops FK constraints on `platform.api_tokens` that referenced `users` and `apps` tables which no longer exist in HubApi's DB (they live in the Security Platform).
+
+### Docs
+- Updated `docs/platform-api-reference.md` [0.8.4]: null fields omitted from all response examples, added `MapInboundClaims` note to auth overview, added new-user SP 404 handling note to List Projects, updated Standard Response Envelope section
+- Updated `README.md`: doc link updated to new filename, added user secrets guidance
+
+---
+
 ## [0.8.3] — 2026-03-27
 
 ### Added
