@@ -29,8 +29,10 @@ public sealed class ProjectController : ApiControllerBase
         if (!Guid.TryParse(User.FindFirst("company_id")?.Value, out var companyId) || companyId == Guid.Empty)
             return BadRequest(ApiResponse<object>.Fail("Valid company_id claim is required."));
 
+        var actorEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var result = await _projectService.CreateProjectAsync(userId.Value, companyId, baseUrl, request);
+        var result = await _projectService.CreateProjectAsync(userId.Value, actorEmail, companyId, baseUrl, request, ip);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<ProjectResponse>.Ok(result));
     }
 
@@ -70,7 +72,9 @@ public sealed class ProjectController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        await _projectService.DeactivateProjectAsync(id, userId.Value);
+        var actorEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        await _projectService.DeactivateProjectAsync(id, userId.Value, actorEmail, ip);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 

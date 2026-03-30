@@ -19,7 +19,8 @@ public sealed class ApiTokensController(IApiTokenService apiTokenService) : ApiC
         var apiBaseUrl = $"{Request.Scheme}://{Request.Host}";
         var userName = User.FindFirst("full_name")?.Value ?? string.Empty;
         var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
-        var result = await apiTokenService.CreateAsync(userId.Value, userName, userEmail, request, apiBaseUrl);
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var result = await apiTokenService.CreateAsync(userId.Value, userName, userEmail, request, apiBaseUrl, ip);
         return Ok(ApiResponse<ApiTokenResponse>.Ok(result));
     }
 
@@ -39,7 +40,9 @@ public sealed class ApiTokensController(IApiTokenService apiTokenService) : ApiC
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        await apiTokenService.RevokeAsync(tokenId, userId.Value);
+        var actorEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        await apiTokenService.RevokeAsync(tokenId, userId.Value, actorEmail, ip);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 }

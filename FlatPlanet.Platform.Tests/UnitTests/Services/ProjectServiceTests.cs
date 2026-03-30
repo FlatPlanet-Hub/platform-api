@@ -12,9 +12,10 @@ public sealed class ProjectServiceTests
     private readonly Mock<ISecurityPlatformService> _securityPlatform = new();
     private readonly Mock<IGitHubRepoService> _gitHubRepo = new();
     private readonly Mock<IDbProxyService> _dbProxy = new();
+    private readonly Mock<IAuditLogRepository> _auditLog = new();
 
     private ProjectService CreateSut() =>
-        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object);
+        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _auditLog.Object);
 
     [Fact]
     public async Task CreateProject_ShouldProvisionSchema_AndRegisterApp()
@@ -31,9 +32,11 @@ public sealed class ProjectServiceTests
         _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+        _auditLog.Setup(a => a.LogAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<object?>(), It.IsAny<string?>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();
-        var result = await sut.CreateProjectAsync(userId, companyId, "https://localhost", request);
+        var result = await sut.CreateProjectAsync(userId, "actor@test.com", companyId, "https://localhost", request, null);
 
         Assert.Equal("My App", result.Name);
         Assert.StartsWith("project_", result.SchemaName);
@@ -64,6 +67,6 @@ public sealed class ProjectServiceTests
 
         var sut = CreateSut();
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            sut.DeactivateProjectAsync(projectId, userId));
+            sut.DeactivateProjectAsync(projectId, userId, "actor@test.com", null));
     }
 }
