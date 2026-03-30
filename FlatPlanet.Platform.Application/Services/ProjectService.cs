@@ -1,3 +1,4 @@
+using FlatPlanet.Platform.Application.Common;
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
@@ -10,20 +11,23 @@ public sealed class ProjectService : IProjectService
     private readonly ISecurityPlatformService _securityPlatform;
     private readonly IGitHubRepoService _gitHubRepo;
     private readonly IDbProxyService _dbProxy;
+    private readonly IAuditLogRepository _auditLog;
 
     public ProjectService(
         IProjectRepository projectRepo,
         ISecurityPlatformService securityPlatform,
         IGitHubRepoService gitHubRepo,
-        IDbProxyService dbProxy)
+        IDbProxyService dbProxy,
+        IAuditLogRepository auditLog)
     {
-        _projectRepo = projectRepo;
+        _projectRepo      = projectRepo;
         _securityPlatform = securityPlatform;
-        _gitHubRepo = gitHubRepo;
-        _dbProxy = dbProxy;
+        _gitHubRepo       = gitHubRepo;
+        _dbProxy          = dbProxy;
+        _auditLog         = auditLog;
     }
 
-    public async Task<ProjectResponse> CreateProjectAsync(Guid userId, Guid companyId, string baseUrl, CreateProjectRequest request)
+    public async Task<ProjectResponse> CreateProjectAsync(Guid userId, string actorEmail, Guid companyId, string baseUrl, CreateProjectRequest request, string? ipAddress)
     {
         var shortId = Guid.NewGuid().ToString("N")[..8];
         var schemaName = $"project_{shortId}";
@@ -55,6 +59,9 @@ public sealed class ProjectService : IProjectService
 
         _ = _gitHubRepo.SeedProjectFilesAsync(created);
         _ = _dbProxy.CreateSchemaAsync(schemaName);
+
+        await _auditLog.LogAsync(userId, actorEmail, AuditAction.ProjectCreate,
+            "project", created.Id, new { name = created.Name, appSlug }, ipAddress);
 
         return ToResponse(created, "owner");
     }
@@ -126,7 +133,7 @@ public sealed class ProjectService : IProjectService
         return ToResponse(project);
     }
 
-    public async Task DeactivateProjectAsync(Guid projectId, Guid userId)
+    public async Task DeactivateProjectAsync(Guid projectId, Guid userId, string actorEmail, string? ipAddress)
     {
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
@@ -138,6 +145,9 @@ public sealed class ProjectService : IProjectService
         project.IsActive = false;
         project.UpdatedAt = DateTime.UtcNow;
         await _projectRepo.UpdateAsync(project);
+
+        await _auditLog.LogAsync(userId, actorEmail, AuditAction.ProjectDeactivate,
+            "project", projectId, new { projectId, name = project.Name }, ipAddress);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

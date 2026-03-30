@@ -6,6 +6,7 @@ using FlatPlanet.Platform.Application.Services;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using FlatPlanet.Platform.Infrastructure.Repositories;
+using FlatPlanet.Platform.Infrastructure.Services;
 
 namespace FlatPlanet.Platform.Infrastructure.Extensions;
 
@@ -30,9 +31,11 @@ public static class InfrastructureExtensions
         services.AddScoped<IAuditService, AuditService>();
         services.AddHttpContextAccessor();
 
-        // Repositories (HubApi owns only these two)
+        // Repositories
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IApiTokenRepository, ApiTokenRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddHostedService<AuditLogCleanupService>();
 
         // DB proxy (Feature 1)
         services.AddScoped<IDbProxyService, DbProxyService>();

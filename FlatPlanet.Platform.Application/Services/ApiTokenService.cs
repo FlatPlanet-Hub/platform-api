@@ -1,3 +1,4 @@
+using FlatPlanet.Platform.Application.Common;
 using FlatPlanet.Platform.Application.DTOs.Iam;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
@@ -7,9 +8,10 @@ namespace FlatPlanet.Platform.Application.Services;
 
 public sealed class ApiTokenService(
     IApiTokenRepository tokenRepo,
-    IJwtService jwtService) : IApiTokenService
+    IJwtService jwtService,
+    IAuditLogRepository auditLog) : IApiTokenService
 {
-    public async Task<ApiTokenResponse> CreateAsync(Guid userId, string userName, string userEmail, CreateApiTokenRequest request, string apiBaseUrl)
+    public async Task<ApiTokenResponse> CreateAsync(Guid userId, string userName, string userEmail, CreateApiTokenRequest request, string apiBaseUrl, string? ipAddress)
     {
         var rawToken = jwtService.GenerateApiToken(
             userId, userName, userEmail,
@@ -30,6 +32,9 @@ public sealed class ApiTokenService(
             Revoked = false,
             CreatedAt = DateTime.UtcNow
         });
+
+        await auditLog.LogAsync(userId, userEmail, AuditAction.TokenCreate,
+            "api_token", apiToken.Id, new { tokenId = apiToken.Id, name = request.Name }, ipAddress);
 
         return new ApiTokenResponse
         {
@@ -72,7 +77,7 @@ public sealed class ApiTokenService(
         });
     }
 
-    public async Task RevokeAsync(Guid tokenId, Guid userId)
+    public async Task RevokeAsync(Guid tokenId, Guid userId, string actorEmail, string? ipAddress)
     {
         var token = await tokenRepo.GetByIdAsync(tokenId)
             ?? throw new InvalidOperationException("Token not found.");
@@ -81,5 +86,8 @@ public sealed class ApiTokenService(
             throw new UnauthorizedAccessException("Token does not belong to the current user.");
 
         await tokenRepo.RevokeAsync(tokenId, "user_revoke");
+
+        await auditLog.LogAsync(userId, actorEmail, AuditAction.TokenRevoke,
+            "api_token", tokenId, new { tokenId }, ipAddress);
     }
 }
