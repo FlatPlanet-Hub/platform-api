@@ -16,6 +16,8 @@ public static class InfrastructureExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+
         // Configuration
         services.Configure<JwtSettings>(opts => configuration.GetSection("Jwt").Bind(opts));
         services.Configure<SupabaseSettings>(opts => configuration.GetSection("Supabase").Bind(opts));
