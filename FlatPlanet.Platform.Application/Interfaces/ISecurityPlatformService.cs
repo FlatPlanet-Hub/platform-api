@@ -11,6 +11,7 @@ public interface ISecurityPlatformService
     Task ChangeRoleAsync(Guid appId, Guid userId, string roleName);
     Task RevokeRoleAsync(Guid appId, Guid userId);
 
+    Task<Guid?> GetAppIdBySlugAsync(string slug);
     Task<SpUserDto> GetUserAsync(Guid userId);
     Task<IEnumerable<SpAppAccessDto>> GetUserAppAccessAsync(Guid userId);
     Task<IEnumerable<SpAppMemberDto>> GetAppMembersAsync(Guid appId);

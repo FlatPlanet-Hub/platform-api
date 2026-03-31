@@ -1,5 +1,6 @@
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace FlatPlanet.Platform.Application.Services;
 
@@ -9,17 +10,20 @@ public sealed class ProjectMemberService : IProjectMemberService
     private readonly IGitHubRepoService _gitHubRepo;
     private readonly IProjectRepository _projectRepo;
     private readonly IApiTokenRepository _apiTokenRepo;
+    private readonly ILogger<ProjectMemberService> _logger;
 
     public ProjectMemberService(
         ISecurityPlatformService securityPlatform,
         IGitHubRepoService gitHubRepo,
         IProjectRepository projectRepo,
-        IApiTokenRepository apiTokenRepo)
+        IApiTokenRepository apiTokenRepo,
+        ILogger<ProjectMemberService> logger)
     {
         _securityPlatform = securityPlatform;
         _gitHubRepo = gitHubRepo;
         _projectRepo = projectRepo;
         _apiTokenRepo = apiTokenRepo;
+        _logger = logger;
     }
 
     public async Task<IEnumerable<ProjectMemberResponse>> GetMembersAsync(Guid projectId, Guid userId)
@@ -63,6 +67,24 @@ public sealed class ProjectMemberService : IProjectMemberService
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
 
         await _securityPlatform.GrantRoleAsync(project.AppId.Value, request.UserId, request.Role);
+
+        // Auto-grant viewer on dashboard-hub — do not downgrade existing role
+        try
+        {
+            var dashboardAppId = await _securityPlatform.GetAppIdBySlugAsync("dashboard-hub");
+            if (dashboardAppId is not null)
+            {
+                var access = await _securityPlatform.GetUserAppAccessAsync(request.UserId);
+                var hasRole = access.Any(a =>
+                    a.AppSlug == "dashboard-hub" && !string.IsNullOrEmpty(a.RoleName));
+                if (!hasRole)
+                    await _securityPlatform.GrantRoleAsync(dashboardAppId.Value, request.UserId, "viewer");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to auto-grant dashboard-hub viewer for user {UserId}", request.UserId);
+        }
 
         if (!string.IsNullOrWhiteSpace(project.GitHubRepo) && !string.IsNullOrWhiteSpace(request.GitHubUsername))
         {
