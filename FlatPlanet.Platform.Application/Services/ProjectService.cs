@@ -29,33 +29,32 @@ public sealed class ProjectService : IProjectService
 
     public async Task<ProjectResponse> CreateProjectAsync(Guid userId, string actorEmail, Guid companyId, string baseUrl, CreateProjectRequest request, string? ipAddress)
     {
-        var shortId = Guid.NewGuid().ToString("N")[..8];
+        var shortId    = Guid.NewGuid().ToString("N")[..8];
         var schemaName = $"project_{shortId}";
-        var appSlug = GenerateSlug(request.Name);
+        var appSlug    = GenerateSlug(request.Name);
 
-        var project = new Project
-        {
-            Id = Guid.NewGuid(),
-            Name = request.Name,
-            Description = request.Description,
-            SchemaName = schemaName,
-            OwnerId = userId,
-            TechStack = request.TechStack,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var created = await _projectRepo.CreateAsync(project);
-
+        // 1. Register with SP first — if this fails, nothing is persisted
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
         await _securityPlatform.SetupProjectRolesAsync(appId);
         await _securityPlatform.GrantRoleAsync(appId, userId, "owner");
 
-        created.AppId = appId;
-        created.AppSlug = appSlug;
-        created.UpdatedAt = DateTime.UtcNow;
-        await _projectRepo.UpdateAsync(created);
+        // 2. Only insert DB row after SP succeeds
+        var project = new Project
+        {
+            Id          = Guid.NewGuid(),
+            Name        = request.Name,
+            Description = request.Description,
+            SchemaName  = schemaName,
+            AppId       = appId,
+            AppSlug     = appSlug,
+            OwnerId     = userId,
+            TechStack   = request.TechStack,
+            IsActive    = true,
+            CreatedAt   = DateTime.UtcNow,
+            UpdatedAt   = DateTime.UtcNow
+        };
+
+        var created = await _projectRepo.CreateAsync(project);
 
         _ = _gitHubRepo.SeedProjectFilesAsync(created);
         _ = _dbProxy.CreateSchemaAsync(schemaName);
