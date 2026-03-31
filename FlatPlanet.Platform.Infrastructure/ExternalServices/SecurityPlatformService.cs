@@ -32,7 +32,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
             slug,
             baseUrl
         });
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response);
         var result = await response.Content.ReadFromJsonAsync<SpResponse<SpAppIdData>>();
         return result!.Data!.Id;
     }
@@ -66,7 +66,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
                 continue;
             }
 
-            resp.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(resp);
             var created = await resp.Content.ReadFromJsonAsync<SpResponse<SpPermData>>();
             permIds[permName] = created!.Data!.Id;
         }
@@ -88,7 +88,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
                 continue;
             }
 
-            resp.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(resp);
             var created = await resp.Content.ReadFromJsonAsync<SpResponse<SpRoleData>>();
             roleIds[roleName] = created!.Data!.Id;
         }
@@ -111,7 +111,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
                     $"api/v1/apps/{appId}/roles/{roleId}/permissions",
                     new { permissionId = permId });
                 if (resp.StatusCode != HttpStatusCode.Conflict)
-                    resp.EnsureSuccessStatusCode();
+                    await EnsureSuccessAsync(resp);
             }
         }
     }
@@ -122,7 +122,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         var response = await ServiceClient.PostAsJsonAsync(
             $"api/v1/apps/{appId}/users",
             new { userId, roleId });
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response);
     }
 
     public async Task ChangeRoleAsync(Guid appId, Guid userId, string roleName)
@@ -131,13 +131,13 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         var response = await ServiceClient.PutAsJsonAsync(
             $"api/v1/apps/{appId}/users/{userId}/role",
             new { roleId });
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response);
     }
 
     public async Task RevokeRoleAsync(Guid appId, Guid userId)
     {
         var response = await ServiceClient.DeleteAsync($"api/v1/apps/{appId}/users/{userId}");
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response);
     }
 
     public async Task<SpUserDto> GetUserAsync(Guid userId)
@@ -151,7 +151,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
     {
         var response = await ServiceClient.GetAsync($"api/v1/users/{userId}");
         if (response.StatusCode == HttpStatusCode.NotFound) return [];
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response);
         var result = await response.Content.ReadFromJsonAsync<SpResponse<SpUserDto>>();
         return result?.Data?.AppAccess ?? [];
     }
@@ -197,6 +197,15 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         if (role is null)
             throw new InvalidOperationException($"Role '{roleName}' not found in app {appId}.");
         return role.Id;
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"Security Platform error: {(int)response.StatusCode} — {body}");
+        }
     }
 
     private sealed record SpAppIdData(
