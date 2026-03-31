@@ -140,6 +140,13 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         await EnsureSuccessAsync(response);
     }
 
+    public async Task<Guid?> GetAppIdBySlugAsync(string slug)
+    {
+        var result = await ServiceClient.GetFromJsonAsync<SpResponse<IEnumerable<SpAppIdData>>>(
+            "api/v1/apps");
+        return result?.Data?.FirstOrDefault(a => a.Slug == slug)?.Id;
+    }
+
     public async Task<SpUserDto> GetUserAsync(Guid userId)
     {
         var result = await ServiceClient.GetFromJsonAsync<SpResponse<SpUserDto>>(
@@ -209,7 +216,8 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
     }
 
     private sealed record SpAppIdData(
-        [property: JsonPropertyName("id")] Guid Id);
+        [property: JsonPropertyName("id")]   Guid   Id,
+        [property: JsonPropertyName("slug")] string Slug);
 
     // SP response envelope
     private sealed record SpResponse<T>(
