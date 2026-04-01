@@ -41,6 +41,37 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     // ── IGitHubRepoService ────────────────────────────────────────────────────
 
+    public async Task<(string RepoFullName, string RepoLink)> CreateRepoAsync(string repoName)
+    {
+        var client = GetServiceClient();
+        var repo = await client.Repository.Create(_settings.OrgName, new NewRepository(repoName)
+        {
+            Private     = true,
+            AutoInit    = true,
+            Description = $"FlatPlanet project: {repoName}"
+        });
+        return ($"{_settings.OrgName}/{repoName}", repo.HtmlUrl);
+    }
+
+    public async Task PushClaudeMdAsync(string repoFullName, string branch, string content)
+    {
+        var client = GetServiceClient();
+        var (owner, repoName) = ParseRepo(repoFullName);
+
+        try
+        {
+            var existing = await client.Repository.Content.GetAllContents(owner, repoName, "CLAUDE.md");
+            var sha = existing.FirstOrDefault()?.Sha;
+            await client.Repository.Content.UpdateFile(owner, repoName, "CLAUDE.md",
+                new UpdateFileRequest("chore: update CLAUDE.md", content, sha, branch));
+        }
+        catch (NotFoundException)
+        {
+            await client.Repository.Content.CreateFile(owner, repoName, "CLAUDE.md",
+                new CreateFileRequest("chore: add CLAUDE.md", content, branch));
+        }
+    }
+
     public async Task SeedProjectFilesAsync(DomainProject project)
     {
         if (string.IsNullOrWhiteSpace(project.GitHubRepo)) return;
@@ -48,25 +79,14 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var client = GetServiceClient();
         var (owner, repoName) = ParseRepo(project.GitHubRepo);
 
-        var files = new[]
+        try
         {
-            ("DATA_DICTIONARY.md", "# Data Dictionary\n\n_No tables yet. This file is auto-updated when tables are created._\n"),
-            (".gitignore", BuildGitignore())
-        };
-
-        foreach (var (path, content) in files)
+            await client.Repository.Content.GetAllContents(owner, repoName, ".gitignore");
+        }
+        catch (NotFoundException)
         {
-            try
-            {
-                // File already exists — skip (already seeded)
-                await client.Repository.Content.GetAllContents(owner, repoName, path);
-            }
-            catch (NotFoundException)
-            {
-                // File does not exist — create it
-                await client.Repository.Content.CreateFile(owner, repoName, path,
-                    new CreateFileRequest($"chore: seed {path}", content, "main"));
-            }
+            await client.Repository.Content.CreateFile(owner, repoName, ".gitignore",
+                new CreateFileRequest("chore: seed .gitignore", BuildGitignore(), "main"));
         }
     }
 
@@ -179,8 +199,5 @@ public sealed class GitHubRepoService : IGitHubRepoService
         # Logs
         *.log
         npm-debug.log*
-
-        # FlatPlanet — never commit these
-        CLAUDE.md
         """;
 }

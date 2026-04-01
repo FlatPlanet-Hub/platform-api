@@ -107,6 +107,35 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         });
     }
 
+    public async Task<string> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
+    {
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+        var roleEntry = appAccess.FirstOrDefault(r => r.AppId == project.AppId);
+        var permissions = roleEntry?.Permissions ?? ["read", "write", "ddl"];
+
+        var rawToken = _jwtService.GenerateApiToken(
+            userId, actorEmail, actorEmail,
+            project.AppId, project.AppSlug ?? project.SchemaName, project.SchemaName,
+            permissions, 30, out var expiresAt);
+
+        var tokenHash = TokenHasher.Hash(rawToken);
+
+        await _apiTokenRepo.CreateAsync(new ApiToken
+        {
+            Id          = Guid.NewGuid(),
+            UserId      = userId,
+            AppId       = project.AppId,
+            Name        = $"Claude token for {project.Name}",
+            TokenHash   = tokenHash,
+            Permissions = permissions,
+            ExpiresAt   = expiresAt,
+            Revoked     = false,
+            CreatedAt   = DateTime.UtcNow
+        });
+
+        return RenderTemplate(project, rawToken, expiresAt, baseUrl);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private async Task<(Project project, string[] permissions)> GetContextAsync(Guid userId, Guid projectId)
@@ -260,8 +289,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("- Follow naming conventions of the existing codebase");
         sb.AppendLine();
         sb.AppendLine("## IMPORTANT");
-        sb.AppendLine("- This file is LOCAL ONLY — do not commit or push it");
-        sb.AppendLine("- CLAUDE.md is in .gitignore — it will not appear in git status");
+        sb.AppendLine("- This file is committed to the repo — do not add it to .gitignore");
         sb.AppendLine("- If the token expires, ask the user to click \"Regenerate CLAUDE.md\" in the Hub");
         return sb.ToString();
     }

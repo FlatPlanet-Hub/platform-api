@@ -12,9 +12,10 @@ public sealed class ProjectServiceTests
     private readonly Mock<ISecurityPlatformService> _securityPlatform = new();
     private readonly Mock<IGitHubRepoService> _gitHubRepo = new();
     private readonly Mock<IDbProxyService> _dbProxy = new();
+    private readonly Mock<IClaudeConfigService> _claudeConfig = new();
 
     private ProjectService CreateSut() =>
-        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object);
+        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _claudeConfig.Object);
 
     [Fact]
     public async Task CreateProject_ShouldProvisionSchema_AndRegisterApp()
@@ -22,7 +23,7 @@ public sealed class ProjectServiceTests
         var userId = Guid.NewGuid();
         var companyId = Guid.NewGuid();
         var appId = Guid.NewGuid();
-        var request = new CreateProjectRequest { Name = "My App", Description = "Test project" };
+        var request = new CreateProjectRequest { Name = "My App", Description = "Test project", GitHub = null };
 
         _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
         _projectRepo.Setup(r => r.UpdateAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
@@ -33,14 +34,106 @@ public sealed class ProjectServiceTests
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();
-        var result = await sut.CreateProjectAsync(userId, companyId, "https://localhost", request);
+        var result = await sut.CreateProjectAsync(userId, "user@example.com", companyId, "https://localhost", request);
 
         Assert.Equal("My App", result.Name);
         Assert.StartsWith("project_", result.SchemaName);
         Assert.Equal("my-app", result.AppSlug);
+        Assert.Null(result.GitHub);
         _securityPlatform.Verify(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId), Times.Once);
         _securityPlatform.Verify(s => s.SetupProjectRolesAsync(appId), Times.Once);
         _securityPlatform.Verify(s => s.GrantRoleAsync(appId, userId, "owner"), Times.Once);
+        _gitHubRepo.Verify(g => g.CreateRepoAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateProject_WithCreateRepo_ShouldCallCreateRepoAsync()
+    {
+        var userId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var appId = Guid.NewGuid();
+        var request = new CreateProjectRequest
+        {
+            Name = "My App",
+            GitHub = new GitHubRepoRequest { CreateRepo = true, RepoName = "my-app-repo" }
+        };
+
+        _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
+        _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
+        _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _gitHubRepo.Setup(g => g.CreateRepoAsync("my-app-repo"))
+            .ReturnsAsync(("FlatPlanet-Hub/my-app-repo", "https://github.com/FlatPlanet-Hub/my-app-repo"));
+        _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
+        _gitHubRepo.Setup(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        _claudeConfig.Setup(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), userId, It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync("# CLAUDE.md content");
+        _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.CreateProjectAsync(userId, "user@example.com", companyId, "https://localhost", request);
+
+        _gitHubRepo.Verify(g => g.CreateRepoAsync("my-app-repo"), Times.Once);
+        Assert.NotNull(result.GitHub);
+        Assert.Equal("my-app-repo", result.GitHub!.RepoName);
+        Assert.Equal("FlatPlanet-Hub/my-app-repo", result.GitHub.RepoFullName);
+        Assert.Equal("https://github.com/FlatPlanet-Hub/my-app-repo", result.GitHub.RepoLink);
+    }
+
+    [Fact]
+    public async Task CreateProject_WithExistingRepo_ShouldParseRepoUrl()
+    {
+        var userId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var appId = Guid.NewGuid();
+        var request = new CreateProjectRequest
+        {
+            Name = "My App",
+            GitHub = new GitHubRepoRequest { CreateRepo = false, ExistingRepoUrl = "https://github.com/FlatPlanet-Hub/existing-repo" }
+        };
+
+        _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
+        _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
+        _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
+        _gitHubRepo.Setup(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+        _claudeConfig.Setup(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), userId, It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync("# CLAUDE.md content");
+        _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.CreateProjectAsync(userId, "user@example.com", companyId, "https://localhost", request);
+
+        _gitHubRepo.Verify(g => g.CreateRepoAsync(It.IsAny<string>()), Times.Never);
+        Assert.NotNull(result.GitHub);
+        Assert.Equal("existing-repo", result.GitHub!.RepoName);
+        Assert.Equal("FlatPlanet-Hub/existing-repo", result.GitHub.RepoFullName);
+        Assert.Equal("https://github.com/FlatPlanet-Hub/existing-repo", result.GitHub.RepoLink);
+    }
+
+    [Fact]
+    public async Task CreateProject_WithNoGitHub_ShouldSkipGitHubCalls()
+    {
+        var userId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var appId = Guid.NewGuid();
+        var request = new CreateProjectRequest { Name = "My App", GitHub = null };
+
+        _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
+        _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
+        _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.CreateProjectAsync(userId, "user@example.com", companyId, "https://localhost", request);
+
+        _gitHubRepo.Verify(g => g.CreateRepoAsync(It.IsAny<string>()), Times.Never);
+        _gitHubRepo.Verify(g => g.SeedProjectFilesAsync(It.IsAny<Project>()), Times.Never);
+        _gitHubRepo.Verify(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _claudeConfig.Verify(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.Null(result.GitHub);
     }
 
     [Fact]
