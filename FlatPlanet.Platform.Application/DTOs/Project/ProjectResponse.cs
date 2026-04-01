@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace FlatPlanet.Platform.Application.DTOs.Project;
 
 public sealed class ProjectResponse
@@ -12,6 +14,7 @@ public sealed class ProjectResponse
     public string?  TechStack   { get; init; }
     public bool     IsActive    { get; init; }
     public DateTime CreatedAt   { get; init; }
+    [JsonPropertyName("github")]
     public GitHubRepoResponse?                 GitHub  { get; init; }
     public IEnumerable<ProjectMemberResponse>? Members { get; init; }
 }
