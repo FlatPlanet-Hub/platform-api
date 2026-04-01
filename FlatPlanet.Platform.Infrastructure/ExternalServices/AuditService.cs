@@ -16,12 +16,6 @@ public sealed class AuditService(IDbConnectionFactory db) : IAuditService
             INSERT INTO platform.auth_audit_log (id, user_id, app_id, event_type, ip_address, details, created_at)
             VALUES (gen_random_uuid(), @userId, @appId, @eventType, @ipAddress, @details::jsonb, now())
             """, new { userId, appId, eventType, ipAddress, details = detailsJson });
-
-        // Backward compat: also write to old audit_log
-        await conn.ExecuteAsync("""
-            INSERT INTO platform.audit_log (id, user_id, project_id, action, resource, details, ip_address, created_at)
-            VALUES (gen_random_uuid(), @userId, @appId, @eventType, @resource, @details::jsonb, @ipAddress, now())
-            """, new { userId, appId, eventType, resource, ipAddress, details = detailsJson });
     }
 
     public async Task<object> QueryAsync(Guid? userId, Guid? appId, string? eventType, DateTime? from, DateTime? to, int page, int pageSize)
