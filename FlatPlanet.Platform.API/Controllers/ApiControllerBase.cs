@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using FlatPlanet.Platform.Application.DTOs;
 
 namespace FlatPlanet.Platform.API.Controllers;
 
@@ -11,4 +12,6 @@ public abstract class ApiControllerBase : ControllerBase
                   ?? User.FindFirst("sub")?.Value;
         return Guid.TryParse(sub, out var id) ? id : null;
     }
+
+    protected OkObjectResult OkData<T>(T data) => Ok(ApiResponse<T>.Ok(data));
 }

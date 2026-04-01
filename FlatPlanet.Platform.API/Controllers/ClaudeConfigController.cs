@@ -41,6 +41,18 @@ public sealed class ClaudeConfigController : ApiControllerBase
         return Ok(ApiResponse<ClaudeConfigResponse>.Ok(result));
     }
 
+    [HttpGet("workspace")]
+    public async Task<ActionResult<ApiResponse<WorkspaceResponse>>> GetWorkspace(Guid projectId)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var userName = User.FindFirst("full_name")?.Value ?? string.Empty;
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var result = await _claudeConfigService.GetWorkspaceAsync(userId.Value, projectId, GetBaseUrl(), userName, userEmail);
+        return OkData(result);
+    }
+
     [HttpDelete]
     public async Task<ActionResult<ApiResponse<object?>>> Revoke(Guid projectId)
     {
