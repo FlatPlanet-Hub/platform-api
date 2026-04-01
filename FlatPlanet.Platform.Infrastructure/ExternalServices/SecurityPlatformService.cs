@@ -54,7 +54,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         {
             var resp = await ServiceClient.PostAsJsonAsync(
                 $"api/v1/apps/{appId}/permissions",
-                new { name = permName, description = permDesc });
+                new { name = permName, description = permDesc, category = "project" });
 
             if (resp.StatusCode == HttpStatusCode.Conflict)
             {
