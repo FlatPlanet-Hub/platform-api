@@ -5,6 +5,34 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [0.9.0] — 2026-04-01
+
+### Added — FEAT-05: GitHub Repo Creation and CLAUDE.md Push on Project Create
+
+- **`POST /api/projects` — optional GitHub repo creation:** `CreateProjectRequest` now accepts a `github` object with `createRepo`, `repoName`, and `existingRepoUrl`. Omit the field to skip GitHub integration entirely.
+- **`ProjectResponse.github` nested object:** The flat `gitHubRepo: string` field is replaced by a `github` object containing `repoName`, `repoFullName`, `branch`, and `repoLink`. Returns `null` when no repo is configured.
+- **CLAUDE.md auto-push on project create:** If a GitHub repo is configured, a `CLAUDE.md` is generated, an API token is stored, and the file is committed to the repo automatically (fire-and-forget).
+- **`IGitHubRepoService.CreateRepoAsync`** — creates a repo under the configured org and returns `(RepoFullName, RepoLink)`.
+- **`IGitHubRepoService.PushClaudeMdAsync`** — creates or updates `CLAUDE.md` in the repo via the Contents API.
+- **`IClaudeConfigService.RenderAndStoreTokenAsync`** — generates and stores an API token, returns rendered CLAUDE.md content.
+- **DB migration `009_project_github_fields.sql`** — adds `git_hub_repo_name`, `git_hub_branch`, `git_hub_repo_link` columns to `platform.projects`.
+- 4 new unit tests: create-repo, existing-repo, no-github, and skip-github paths.
+
+### Fixed
+
+- **BUG-04 — orphaned DB rows on SP failure:** Security Platform registration now happens before the DB insert. If SP fails (e.g. slug conflict), no `platform.projects` row is created.
+- **BUG-03 — dashboard-hub viewer not granted on invite:** `ProjectMemberService.InviteMemberAsync` now checks whether the invited user has any role on `dashboard-hub`. If not, `viewer` is auto-granted. Failure is logged and never rolls back the project role grant.
+- **SP error surfacing:** All `EnsureSuccessStatusCode()` calls in `SecurityPlatformService` replaced with a shared `EnsureSuccessAsync()` helper. On failure, the SP response status and body are read and thrown as `InvalidOperationException`, which maps to `409` in `GlobalExceptionMiddleware`. SP errors are no longer masked as `500`.
+- **Dapper snake_case mapping:** `DefaultTypeMap.MatchNamesWithUnderscores = true` set globally on startup. Dapper now maps Postgres `snake_case` columns to C# `PascalCase` properties without manual aliases.
+- **Permission category field:** `SetupProjectRolesAsync` now includes the `category` field in the permission creation payload sent to the Security Platform.
+
+### Docs
+
+- Updated `docs/platform-api-reference.md` to v0.9.0: new `github` request/response shape on `POST /api/projects`, `ProjectResponse.github` nested object across all project endpoints, dashboard-hub auto-grant note on `POST /api/projects/{id}/members`, SP error surfacing note in error reference.
+- Updated `README.md`: API surface table reflects new GitHub field on project creation.
+
+---
+
 ## [0.8.4] — 2026-03-27
 
 ### Changed

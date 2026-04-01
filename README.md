@@ -115,7 +115,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/projects` | List projects the user has access to |
-| `POST` | `/api/projects` | Create project |
+| `POST` | `/api/projects` | Create project (optional GitHub repo creation + CLAUDE.md push) |
 | `GET` | `/api/projects/{id}` | Get project |
 | `PUT` | `/api/projects/{id}` | Update project |
 | `DELETE` | `/api/projects/{id}` | Deactivate project |

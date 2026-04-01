@@ -1,6 +1,6 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 0.8.4
+**Version:** 0.9.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
@@ -332,10 +332,15 @@ Returns all projects the authenticated user has access to. Access is determined 
       "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
       "appSlug": "acme-crm",
       "roleName": "owner",
-      "gitHubRepo": "FlatPlanet-Hub/acme-crm",
       "techStack": "React + .NET 10",
       "isActive": true,
       "createdAt": "2026-01-15T10:30:00Z",
+      "github": {
+        "repoName": "acme-crm",
+        "repoFullName": "FlatPlanet-Hub/acme-crm",
+        "branch": "main",
+        "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
+      },
       "members": null
     }
   ]
@@ -361,11 +366,37 @@ Returns all projects the authenticated user has access to. Access is determined 
 
 ### `POST /api/projects`
 
-Creates a new project. Provisions a Postgres schema, registers the app with the Security Platform, creates default roles and permissions (`owner`, `developer`, `viewer`), and seeds the GitHub repository with a `DATA_DICTIONARY.md` and `.gitignore`.
+Creates a new project. Provisions a Postgres schema, registers the app with the Security Platform, creates default roles and permissions (`owner`, `developer`, `viewer`), optionally creates a GitHub repo, and auto-pushes a `CLAUDE.md` to the repo.
 
 **Auth required:** Security Platform JWT with `company_id` claim
 
-**Request:**
+**Request — with new GitHub repo:**
+
+```json
+{
+  "name": "Acme CRM",
+  "description": "Customer relationship management system",
+  "techStack": "React + .NET 10",
+  "github": {
+    "createRepo": true,
+    "repoName": "acme-crm"
+  }
+}
+```
+
+**Request — link existing repo:**
+
+```json
+{
+  "name": "Acme CRM",
+  "github": {
+    "createRepo": false,
+    "existingRepoUrl": "https://github.com/FlatPlanet-Hub/acme-crm"
+  }
+}
+```
+
+**Request — no GitHub:**
 
 ```json
 {
@@ -380,8 +411,12 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Project display name. Used to derive the schema name (`project_{slug}`) and app slug. |
-| `description` | string | No | Optional description |
+| `description` | string | No | Optional description. |
 | `techStack` | string | No | Free-text tech stack. Included in the generated CLAUDE.md. |
+| `github` | object | No | GitHub configuration. Omit entirely to skip GitHub integration. |
+| `github.createRepo` | bool | Yes (if `github` set) | `true` to create a new repo in the configured org. `false` to link an existing repo. |
+| `github.repoName` | string | When `createRepo: true` | Name of the GitHub repo to create. |
+| `github.existingRepoUrl` | string | When `createRepo: false` | Full URL of the existing GitHub repo to link. |
 
 ---
 
@@ -398,14 +433,21 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
     "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     "appSlug": "acme-crm",
     "roleName": "owner",
-    "gitHubRepo": null,
     "techStack": "React + .NET 10",
     "isActive": true,
     "createdAt": "2026-03-26T14:00:00Z",
+    "github": {
+      "repoName": "acme-crm",
+      "repoFullName": "FlatPlanet-Hub/acme-crm",
+      "branch": "main",
+      "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
+    },
     "members": null
   }
 }
 ```
+
+`github` is `null` in the response when no GitHub configuration was provided.
 
 **Error Responses:**
 
@@ -413,13 +455,14 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
 |---|---|
 | `400` | `name` is missing, blank, or `company_id` claim is absent/invalid |
 | `401` | Missing or invalid JWT |
-| `409` | A project with the same slug already exists |
-| `502` | Security Platform unreachable during role provisioning |
+| `409` | Project slug already exists, or Security Platform returned an error (SP message included in response body) |
+| `502` | Security Platform unreachable |
 
 **Notes:**
-- Project creation makes ~19 sequential calls to the Security Platform to register the app, create permissions, create roles, and grant the creator the `owner` role. This may take 2–4 seconds.
-- GitHub repo seeding is **fire-and-forget** — a GitHub failure does not roll back the project.
-- `gitHubRepo` is `null` at creation. Set it via `PUT /api/projects/{id}`.
+- **Creation order:** GitHub repo → Security Platform registration → DB insert. SP failure after GitHub creation will not leave a DB record (no orphans), but the GitHub repo may already exist.
+- **CLAUDE.md auto-push:** If a GitHub repo is configured, a `CLAUDE.md` is generated and committed to the repo automatically. This is fire-and-forget — it does not block project creation.
+- Project creation makes ~19 sequential Security Platform calls (register app, create 5 permissions, create 3 roles, assign permissions to roles, grant creator `owner`). Expect 2–4 seconds.
+- SP errors (e.g. slug conflict `409`) are now surfaced with the real SP error message instead of a generic `500`.
 
 ---
 
@@ -452,10 +495,15 @@ Returns a single project by ID.
     "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     "appSlug": "acme-crm",
     "roleName": "owner",
-    "gitHubRepo": "FlatPlanet-Hub/acme-crm",
     "techStack": "React + .NET 10",
     "isActive": true,
     "createdAt": "2026-01-15T10:30:00Z",
+    "github": {
+      "repoName": "acme-crm",
+      "repoFullName": "FlatPlanet-Hub/acme-crm",
+      "branch": "main",
+      "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
+    },
     "members": null
   }
 }
@@ -494,7 +542,6 @@ Updates project metadata. Requires `manage_members` permission (checked via Secu
 {
   "name": "Acme CRM v2",
   "description": "Updated description",
-  "gitHubRepo": "FlatPlanet-Hub/acme-crm",
   "techStack": "Next.js + .NET 10"
 }
 ```
@@ -505,7 +552,6 @@ Updates project metadata. Requires `manage_members` permission (checked via Secu
 |---|---|---|---|
 | `name` | string | No | New display name |
 | `description` | string | No | New description |
-| `gitHubRepo` | string | No | GitHub repo in `org/repo-name` format |
 | `techStack` | string | No | Free-text tech stack description |
 
 All fields are optional. Only provided fields are updated.
@@ -677,6 +723,7 @@ Grants a user access to the project with a specified role. Optionally adds them 
 | `502` | Security Platform unreachable |
 
 **Notes:**
+- **dashboard-hub auto-grant:** After granting the project role, HubApi checks whether the user has any role on the `dashboard-hub` app. If not, they are automatically granted `viewer` on `dashboard-hub`. This is fire-and-forget — a failure is logged but does not roll back the project role grant.
 - GitHub collaborator invitation is fire-and-forget — a GitHub failure does not roll back the role grant.
 - `githubUsername` is only used at invite time. If skipped, there is no later endpoint to add the user to the GitHub repo without removing and re-adding the member.
 - The user must already exist in the Security Platform. This endpoint does not create users.
