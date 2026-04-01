@@ -109,13 +109,25 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     public async Task<WorkspaceResponse> GetWorkspaceAsync(Guid userId, Guid projectId, string baseUrl, string userName, string userEmail)
     {
-        var config = await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
+
+        var existing = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
+        var hasActiveToken = existing.Any(t => t.AppId == project.AppId);
+
+        var config = hasActiveToken
+            ? await RegenerateAsync(userId, projectId, baseUrl, userName, userEmail)
+            : await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+
         return new WorkspaceResponse
         {
-            Content = config.Content,
-            Filename = "CLAUDE-local.md",
+            Content   = config.Content,
+            Filename  = "CLAUDE-local.md",
             GitignoreEntry = "CLAUDE-local.md",
-            TokenId = config.TokenId,
+            TokenId   = config.TokenId,
             ExpiresAt = config.ExpiresAt
         };
     }
