@@ -29,8 +29,12 @@ public sealed class ProjectController : ApiControllerBase
         if (!Guid.TryParse(User.FindFirst("company_id")?.Value, out var companyId) || companyId == Guid.Empty)
             return BadRequest(ApiResponse<object>.Fail("Valid company_id claim is required."));
 
+        var actorEmail = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+                      ?? User.FindFirst("email")?.Value
+                      ?? string.Empty;
+
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var result = await _projectService.CreateProjectAsync(userId.Value, companyId, baseUrl, request);
+        var result = await _projectService.CreateProjectAsync(userId.Value, actorEmail, companyId, baseUrl, request);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<ProjectResponse>.Ok(result));
     }
 

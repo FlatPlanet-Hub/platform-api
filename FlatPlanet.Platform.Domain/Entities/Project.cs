@@ -10,6 +10,9 @@ public sealed class Project
     public Guid? AppId { get; set; }
     public string? AppSlug { get; set; }
     public string? GitHubRepo { get; set; }
+    public string? GitHubRepoName { get; set; }
+    public string  GitHubBranch   { get; set; } = "main";
+    public string? GitHubRepoLink { get; set; }
     public string? TechStack { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; init; }

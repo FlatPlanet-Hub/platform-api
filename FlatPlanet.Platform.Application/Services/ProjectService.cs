@@ -10,49 +10,94 @@ public sealed class ProjectService : IProjectService
     private readonly ISecurityPlatformService _securityPlatform;
     private readonly IGitHubRepoService _gitHubRepo;
     private readonly IDbProxyService _dbProxy;
+    private readonly IClaudeConfigService _claudeConfig;
 
     public ProjectService(
         IProjectRepository projectRepo,
         ISecurityPlatformService securityPlatform,
         IGitHubRepoService gitHubRepo,
-        IDbProxyService dbProxy)
+        IDbProxyService dbProxy,
+        IClaudeConfigService claudeConfig)
     {
         _projectRepo = projectRepo;
         _securityPlatform = securityPlatform;
         _gitHubRepo = gitHubRepo;
         _dbProxy = dbProxy;
+        _claudeConfig = claudeConfig;
     }
 
-    public async Task<ProjectResponse> CreateProjectAsync(Guid userId, Guid companyId, string baseUrl, CreateProjectRequest request)
+    public async Task<ProjectResponse> CreateProjectAsync(
+        Guid userId, string actorEmail, Guid companyId, string baseUrl, CreateProjectRequest request)
     {
         var shortId    = Guid.NewGuid().ToString("N")[..8];
         var schemaName = $"project_{shortId}";
         var appSlug    = GenerateSlug(request.Name);
 
-        // 1. Register with SP first — if this fails, nothing is persisted
+        // 1. Resolve GitHub repo info
+        string? repoFullName = null;
+        string? repoName     = null;
+        string? repoLink     = null;
+        const string branch  = "main";
+
+        if (request.GitHub is not null)
+        {
+            if (request.GitHub.CreateRepo)
+            {
+                if (string.IsNullOrWhiteSpace(request.GitHub.RepoName))
+                    throw new ArgumentException("RepoName is required when CreateRepo is true.");
+
+                (repoFullName, repoLink) = await _gitHubRepo.CreateRepoAsync(request.GitHub.RepoName);
+                repoName = request.GitHub.RepoName;
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(request.GitHub.ExistingRepoUrl))
+                    throw new ArgumentException("ExistingRepoUrl is required when CreateRepo is false.");
+
+                repoLink     = request.GitHub.ExistingRepoUrl.TrimEnd('/');
+                var uri      = new Uri(repoLink);
+                repoFullName = uri.AbsolutePath.TrimStart('/');
+                repoName     = repoFullName.Split('/').Last();
+            }
+        }
+
+        // 2. Register with SP first — if this fails, nothing is persisted
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
         await _securityPlatform.SetupProjectRolesAsync(appId);
         await _securityPlatform.GrantRoleAsync(appId, userId, "owner");
 
-        // 2. Only insert DB row after SP succeeds
+        // 3. Insert DB row after SP succeeds
         var project = new Project
         {
-            Id          = Guid.NewGuid(),
-            Name        = request.Name,
-            Description = request.Description,
-            SchemaName  = schemaName,
-            AppId       = appId,
-            AppSlug     = appSlug,
-            OwnerId     = userId,
-            TechStack   = request.TechStack,
-            IsActive    = true,
-            CreatedAt   = DateTime.UtcNow,
-            UpdatedAt   = DateTime.UtcNow
+            Id             = Guid.NewGuid(),
+            Name           = request.Name,
+            Description    = request.Description,
+            SchemaName     = schemaName,
+            AppId          = appId,
+            AppSlug        = appSlug,
+            OwnerId        = userId,
+            TechStack      = request.TechStack,
+            GitHubRepo     = repoFullName,
+            GitHubRepoName = repoName,
+            GitHubBranch   = branch,
+            GitHubRepoLink = repoLink,
+            IsActive       = true,
+            CreatedAt      = DateTime.UtcNow,
+            UpdatedAt      = DateTime.UtcNow
         };
 
         var created = await _projectRepo.CreateAsync(project);
 
-        _ = _gitHubRepo.SeedProjectFilesAsync(created);
+        // 4. Seed repo files + push CLAUDE.md (fire-and-forget)
+        if (repoFullName is not null)
+        {
+            _ = _gitHubRepo.SeedProjectFilesAsync(created);
+
+            var claudeMd = await _claudeConfig.RenderAndStoreTokenAsync(created, userId, actorEmail, baseUrl);
+            _ = _gitHubRepo.PushClaudeMdAsync(repoFullName, branch, claudeMd);
+        }
+
+        // 5. Create project schema in Supabase (fire-and-forget)
         _ = _dbProxy.CreateSchemaAsync(schemaName);
 
         return ToResponse(created, "owner");
@@ -154,16 +199,22 @@ public sealed class ProjectService : IProjectService
 
     private static ProjectResponse ToResponse(Project p, string? roleName = null) => new()
     {
-        Id = p.Id,
-        Name = p.Name,
+        Id          = p.Id,
+        Name        = p.Name,
         Description = p.Description,
-        SchemaName = p.SchemaName,
-        OwnerId = p.OwnerId,
-        AppSlug = p.AppSlug,
-        GitHubRepo = p.GitHubRepo,
-        TechStack = p.TechStack,
-        IsActive = p.IsActive,
-        CreatedAt = p.CreatedAt,
-        RoleName = roleName
+        SchemaName  = p.SchemaName,
+        OwnerId     = p.OwnerId,
+        AppSlug     = p.AppSlug,
+        TechStack   = p.TechStack,
+        IsActive    = p.IsActive,
+        CreatedAt   = p.CreatedAt,
+        RoleName    = roleName,
+        GitHub      = p.GitHubRepo is null ? null : new GitHubRepoResponse
+        {
+            RepoName     = p.GitHubRepoName ?? string.Empty,
+            RepoFullName = p.GitHubRepo,
+            Branch       = p.GitHubBranch,
+            RepoLink     = p.GitHubRepoLink ?? string.Empty
+        }
     };
 }
