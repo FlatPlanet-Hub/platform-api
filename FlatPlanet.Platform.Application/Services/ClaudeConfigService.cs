@@ -289,8 +289,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("- Follow naming conventions of the existing codebase");
         sb.AppendLine();
         sb.AppendLine("## IMPORTANT");
-        sb.AppendLine("- This file is LOCAL ONLY — do not commit or push it");
-        sb.AppendLine("- CLAUDE.md is in .gitignore — it will not appear in git status");
+        sb.AppendLine("- This file is committed to the repo — do not add it to .gitignore");
         sb.AppendLine("- If the token expires, ask the user to click \"Regenerate CLAUDE.md\" in the Hub");
         return sb.ToString();
     }
