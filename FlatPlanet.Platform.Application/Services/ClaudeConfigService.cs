@@ -107,6 +107,31 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         });
     }
 
+    public async Task<WorkspaceResponse> GetWorkspaceAsync(Guid userId, Guid projectId, string baseUrl, string userName, string userEmail)
+    {
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
+
+        var existing = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
+        var hasActiveToken = existing.Any(t => t.AppId == project.AppId);
+
+        var config = hasActiveToken
+            ? await RegenerateAsync(userId, projectId, baseUrl, userName, userEmail)
+            : await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+
+        return new WorkspaceResponse
+        {
+            Content   = config.Content,
+            Filename  = "CLAUDE-local.md",
+            GitignoreEntry = "CLAUDE-local.md",
+            TokenId   = config.TokenId,
+            ExpiresAt = config.ExpiresAt
+        };
+    }
+
     public async Task<string> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
     {
         var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
@@ -289,8 +314,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("- Follow naming conventions of the existing codebase");
         sb.AppendLine();
         sb.AppendLine("## IMPORTANT");
-        sb.AppendLine("- This file is committed to the repo — do not add it to .gitignore");
-        sb.AppendLine("- If the token expires, ask the user to click \"Regenerate CLAUDE.md\" in the Hub");
+        sb.AppendLine("- This file is LOCAL ONLY — add `CLAUDE-local.md` to your `.gitignore` immediately");
+        sb.AppendLine("- NEVER commit this file — it contains a live API token");
+        sb.AppendLine("- If the token expires, click \"Regenerate\" in the FlatPlanet Hub to get a new file");
         return sb.ToString();
     }
 }
