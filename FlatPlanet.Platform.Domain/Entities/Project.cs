@@ -14,6 +14,8 @@ public sealed class Project
     public string  GitHubBranch   { get; set; } = "main";
     public string? GitHubRepoLink { get; set; }
     public string? TechStack { get; set; }
+    public string ProjectType { get; set; } = "fullstack";
+    public bool   AuthEnabled { get; set; } = false;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }

@@ -180,6 +180,98 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         return (project, roleEntry.Permissions);
     }
 
+    private static string BuildCodingStandards(Project project)
+    {
+        var sb = new StringBuilder();
+
+        switch (project.ProjectType.ToLowerInvariant())
+        {
+            case "frontend":
+                sb.AppendLine("### Frontend Standards (React / TypeScript)");
+                sb.AppendLine("- React.js with TypeScript (latest version)");
+                sb.AppendLine("- Strict TypeScript — no `any`, explicit return types on all functions");
+                sb.AppendLine("- Component naming: PascalCase, one component per file");
+                sb.AppendLine("- Hooks: prefix with `use`, keep side effects in useEffect only");
+                sb.AppendLine("- State management: follow existing pattern in the codebase");
+                sb.AppendLine("- Folder structure: feature-based (components, hooks, services, types per feature)");
+                sb.AppendLine("- API calls: always through a service layer — never fetch directly in components");
+                sb.AppendLine("- Error boundaries: wrap major sections");
+                sb.AppendLine("- No unused imports, no console.log in production code");
+                sb.AppendLine("- Deploy target: Netlify");
+                break;
+
+            case "backend":
+                sb.AppendLine("### Backend Standards (.NET 10 / C#)");
+                sb.AppendLine("- .NET 10 / C# — use latest language features (primary constructors, pattern matching, etc.)");
+                sb.AppendLine("- Clean Architecture: Controller → Application Service → Domain → Infrastructure");
+                sb.AppendLine("- SOLID principles enforced");
+                sb.AppendLine("- Dependency Injection for all services — never instantiate dependencies manually");
+                sb.AppendLine("- Apply design patterns where appropriate: Strategy, Chain of Responsibility, Factory, Decorator");
+                sb.AppendLine("- No EF Core — Dapper only, raw SQL via IDbConnectionFactory");
+                sb.AppendLine("- All async/await — no blocking calls (.Result, .Wait())");
+                sb.AppendLine("- GlobalExceptionMiddleware handles all errors — never swallow exceptions silently");
+                sb.AppendLine("- Always run `dotnet build` before committing");
+                sb.AppendLine("- Deploy target: Azure App Service");
+                break;
+
+            case "database":
+                sb.AppendLine("### Database Standards (Supabase / PostgreSQL)");
+                sb.AppendLine("- Supabase / PostgreSQL");
+                sb.AppendLine("- ALWAYS check the data dictionary before naming anything (Step 0)");
+                sb.AppendLine("- ALWAYS read the schema before writing DB code (Step 1)");
+                sb.AppendLine("- All DDL goes through migration endpoints — never raw DDL in query endpoints");
+                sb.AppendLine("- All queries use @paramName — never concatenate values into SQL");
+                sb.AppendLine("- snake_case for all table and column names");
+                sb.AppendLine("- UUID primary keys with gen_random_uuid()");
+                sb.AppendLine("- Always include created_at TIMESTAMPTZ DEFAULT now()");
+                sb.AppendLine("- Soft deletes preferred — use is_active boolean over hard deletes");
+                sb.AppendLine("- Always add indexes on foreign keys and frequently queried columns");
+                break;
+
+            case "fullstack":
+            default:
+                sb.AppendLine("### Frontend Standards (React / TypeScript)");
+                sb.AppendLine("- React.js with TypeScript (latest version)");
+                sb.AppendLine("- Strict TypeScript — no `any`, explicit return types on all functions");
+                sb.AppendLine("- Component naming: PascalCase, one component per file");
+                sb.AppendLine("- Hooks: prefix with `use`, keep side effects in useEffect only");
+                sb.AppendLine("- State management: follow existing pattern in the codebase");
+                sb.AppendLine("- Folder structure: feature-based (components, hooks, services, types per feature)");
+                sb.AppendLine("- API calls: always through a service layer — never fetch directly in components");
+                sb.AppendLine("- Error boundaries: wrap major sections");
+                sb.AppendLine("- No unused imports, no console.log in production code");
+                sb.AppendLine("- Deploy target: Netlify");
+                sb.AppendLine();
+                sb.AppendLine("### Backend Standards (.NET 10 / C#)");
+                sb.AppendLine("- .NET 10 / C# — use latest language features (primary constructors, pattern matching, etc.)");
+                sb.AppendLine("- Clean Architecture: Controller → Application Service → Domain → Infrastructure");
+                sb.AppendLine("- SOLID principles enforced");
+                sb.AppendLine("- Dependency Injection for all services — never instantiate dependencies manually");
+                sb.AppendLine("- Apply design patterns where appropriate: Strategy, Chain of Responsibility, Factory, Decorator");
+                sb.AppendLine("- No EF Core — Dapper only, raw SQL via IDbConnectionFactory");
+                sb.AppendLine("- All async/await — no blocking calls (.Result, .Wait())");
+                sb.AppendLine("- GlobalExceptionMiddleware handles all errors — never swallow exceptions silently");
+                sb.AppendLine("- Always run `dotnet build` before committing");
+                sb.AppendLine("- Deploy target: Azure App Service");
+                sb.AppendLine();
+                sb.AppendLine("### Database Standards (Supabase / PostgreSQL)");
+                sb.AppendLine("- Supabase / PostgreSQL");
+                sb.AppendLine("- ALWAYS check the data dictionary before naming anything (Step 0)");
+                sb.AppendLine("- ALWAYS read the schema before writing DB code (Step 1)");
+                sb.AppendLine("- All DDL goes through migration endpoints — never raw DDL in query endpoints");
+                sb.AppendLine("- All queries use @paramName — never concatenate values into SQL");
+                sb.AppendLine("- snake_case for all table and column names");
+                sb.AppendLine("- UUID primary keys with gen_random_uuid()");
+                sb.AppendLine("- Always include created_at TIMESTAMPTZ DEFAULT now()");
+                sb.AppendLine("- Soft deletes preferred — use is_active boolean over hard deletes");
+                sb.AppendLine("- Always add indexes on foreign keys and frequently queried columns");
+                break;
+        }
+
+        sb.AppendLine();
+        return sb.ToString();
+    }
+
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl)
     {
         var pid = project.Id;
@@ -194,6 +286,8 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine($"- **Project ID**: {pid}");
         sb.AppendLine($"- **Schema**: {project.SchemaName}");
         sb.AppendLine($"- **Tech Stack**: {project.TechStack ?? string.Empty}");
+        sb.AppendLine($"- **Project Type**: {project.ProjectType}");
+        sb.AppendLine($"- **Auth Enabled**: {project.AuthEnabled}");
         sb.AppendLine();
         sb.AppendLine("## Platform API");
         sb.AppendLine();
@@ -308,11 +402,49 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("5. For major features, create a PR to main");
         sb.AppendLine();
         sb.AppendLine("## Coding Standards");
-        sb.AppendLine($"- {project.TechStack ?? "Follow the existing codebase conventions"}");
+        sb.AppendLine();
+        sb.Append(BuildCodingStandards(project));
         sb.AppendLine("- Clean, readable code — add comments only where logic is non-obvious");
         sb.AppendLine("- Handle errors gracefully — never swallow exceptions silently");
         sb.AppendLine("- Follow naming conventions of the existing codebase");
         sb.AppendLine();
+
+        if (project.AuthEnabled)
+        {
+            const string spBaseUrl = "https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net";
+            sb.AppendLine("## Authentication (SP Integration)");
+            sb.AppendLine();
+            sb.AppendLine("This project uses FlatPlanet Security Platform for authentication.");
+            sb.AppendLine("Do NOT build your own auth — use the endpoints below.");
+            sb.AppendLine();
+            sb.AppendLine($"App Slug:    {project.AppSlug ?? project.SchemaName}");
+            sb.AppendLine($"App ID:      {project.AppId}");
+            sb.AppendLine($"SP Base URL: {spBaseUrl}");
+            sb.AppendLine();
+            sb.AppendLine("### Login");
+            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/login");
+            sb.AppendLine("Body: { \"email\": \"...\", \"password\": \"...\" }");
+            sb.AppendLine("Returns: { accessToken, refreshToken, expiresIn, user }");
+            sb.AppendLine();
+            sb.AppendLine("### Protect Routes");
+            sb.AppendLine("- All protected routes require: Authorization: Bearer <accessToken>");
+            sb.AppendLine("- JWT issuer: flatplanet-security");
+            sb.AppendLine("- JWT audience: flatplanet-apps");
+            sb.AppendLine("- On 401 → redirect to login");
+            sb.AppendLine();
+            sb.AppendLine("### Check Permission");
+            sb.AppendLine($"POST {spBaseUrl}/api/v1/authorize");
+            sb.AppendLine($"Body: {{ \"appSlug\": \"{project.AppSlug ?? project.SchemaName}\", \"resourceIdentifier\": \"...\", \"requiredPermission\": \"read\" }}");
+            sb.AppendLine();
+            sb.AppendLine("### Refresh Token");
+            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/refresh");
+            sb.AppendLine("Body: { \"refreshToken\": \"...\" }");
+            sb.AppendLine();
+            sb.AppendLine("### Logout");
+            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/logout");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("## IMPORTANT");
         sb.AppendLine("- This file is LOCAL ONLY — add `CLAUDE-local.md` to your `.gitignore` immediately");
         sb.AppendLine("- NEVER commit this file — it contains a live API token");

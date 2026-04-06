@@ -6,4 +6,6 @@ public sealed class UpdateProjectRequest
     public string? Description { get; init; }
     public string? GitHubRepo { get; init; }
     public string? TechStack { get; init; }
+    public string? ProjectType { get; init; }
+    public bool?   AuthEnabled { get; init; }
 }
