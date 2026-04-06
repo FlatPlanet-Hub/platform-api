@@ -46,8 +46,8 @@ public sealed class ProjectRepository : IProjectRepository
     {
         await using var conn = _db.CreateConnection();
         const string sql = """
-            INSERT INTO platform.projects (id, name, description, schema_name, owner_id, app_id, app_slug, github_repo, github_repo_name, github_branch, github_repo_link, tech_stack, is_active, created_at, updated_at)
-            VALUES (@Id, @Name, @Description, @SchemaName, @OwnerId, @AppId, @AppSlug, @GitHubRepo, @GitHubRepoName, @GitHubBranch, @GitHubRepoLink, @TechStack, @IsActive, @CreatedAt, @UpdatedAt)
+            INSERT INTO platform.projects (id, name, description, schema_name, owner_id, app_id, app_slug, github_repo, github_repo_name, github_branch, github_repo_link, tech_stack, project_type, auth_enabled, is_active, created_at, updated_at)
+            VALUES (@Id, @Name, @Description, @SchemaName, @OwnerId, @AppId, @AppSlug, @GitHubRepo, @GitHubRepoName, @GitHubBranch, @GitHubRepoLink, @TechStack, @ProjectType, @AuthEnabled, @IsActive, @CreatedAt, @UpdatedAt)
             RETURNING *
             """;
         return await conn.QuerySingleAsync<Project>(sql, project);
@@ -59,7 +59,8 @@ public sealed class ProjectRepository : IProjectRepository
         const string sql = """
             UPDATE platform.projects
             SET name = @Name, description = @Description, github_repo = @GitHubRepo,
-                tech_stack = @TechStack, is_active = @IsActive, app_id = @AppId,
+                tech_stack = @TechStack, project_type = @ProjectType, auth_enabled = @AuthEnabled,
+                is_active = @IsActive, app_id = @AppId,
                 app_slug = @AppSlug, updated_at = @UpdatedAt
             WHERE id = @Id
             """;

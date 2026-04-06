@@ -61,6 +61,9 @@ public sealed class ProjectService : IProjectService
             }
         }
 
+        if (!ValidProjectTypes.Contains(request.ProjectType.ToLowerInvariant()))
+            throw new ArgumentException($"Invalid project_type '{request.ProjectType}'. Must be one of: frontend, backend, database, fullstack.");
+
         // 2. Register with SP first — if this fails, nothing is persisted
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
         await _securityPlatform.SetupProjectRolesAsync(appId);
@@ -77,6 +80,8 @@ public sealed class ProjectService : IProjectService
             AppSlug        = appSlug,
             OwnerId        = userId,
             TechStack      = request.TechStack,
+            ProjectType    = request.ProjectType,
+            AuthEnabled    = request.AuthEnabled,
             GitHubRepo     = repoFullName,
             GitHubRepoName = repoName,
             GitHubBranch   = branch,
@@ -164,6 +169,13 @@ public sealed class ProjectService : IProjectService
         if (request.Description is not null) project.Description = request.Description;
         if (request.GitHubRepo is not null) project.GitHubRepo = request.GitHubRepo;
         if (request.TechStack is not null) project.TechStack = request.TechStack;
+        if (request.ProjectType is not null)
+        {
+            if (!ValidProjectTypes.Contains(request.ProjectType.ToLowerInvariant()))
+                throw new ArgumentException($"Invalid project_type '{request.ProjectType}'. Must be one of: frontend, backend, database, fullstack.");
+            project.ProjectType = request.ProjectType;
+        }
+        if (request.AuthEnabled is not null) project.AuthEnabled = request.AuthEnabled.Value;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
@@ -186,6 +198,8 @@ public sealed class ProjectService : IProjectService
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    private static readonly HashSet<string> ValidProjectTypes = ["frontend", "backend", "database", "fullstack"];
+
     private async Task<Project> GetOrThrowAsync(Guid projectId) =>
         await _projectRepo.GetByIdAsync(projectId)
         ?? throw new KeyNotFoundException($"Project {projectId} not found.");
@@ -206,6 +220,8 @@ public sealed class ProjectService : IProjectService
         OwnerId     = p.OwnerId,
         AppSlug     = p.AppSlug,
         TechStack   = p.TechStack,
+        ProjectType = p.ProjectType,
+        AuthEnabled = p.AuthEnabled,
         IsActive    = p.IsActive,
         CreatedAt   = p.CreatedAt,
         RoleName    = roleName,

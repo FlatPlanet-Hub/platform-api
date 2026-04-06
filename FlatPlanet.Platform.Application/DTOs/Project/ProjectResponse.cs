@@ -12,6 +12,8 @@ public sealed class ProjectResponse
     public string?  AppSlug     { get; init; }
     public string?  RoleName    { get; init; }
     public string?  TechStack   { get; init; }
+    public string ProjectType { get; init; } = "fullstack";
+    public bool   AuthEnabled { get; init; } = false;
     public bool     IsActive    { get; init; }
     public DateTime CreatedAt   { get; init; }
     [JsonPropertyName("github")]
