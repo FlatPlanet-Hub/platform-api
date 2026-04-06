@@ -278,6 +278,18 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         var api = $"{baseUrl}/api/projects/{pid}";
         var sb = new StringBuilder();
 
+        sb.AppendLine("<!-- ⚠️  DO NOT COMMIT THIS FILE ⚠️  -->");
+        sb.AppendLine("<!-- This file contains a live API token scoped to your project database. -->");
+        sb.AppendLine("<!-- Add CLAUDE-local.md to your .gitignore immediately if not already done. -->");
+        sb.AppendLine("<!-- Regenerate from the FlatPlanet Hub if this token is ever exposed.      -->");
+        sb.AppendLine();
+        sb.AppendLine("> **⚠️ LOCAL FILE — DO NOT COMMIT**");
+        sb.AppendLine("> This file is git-ignored for a reason. It contains a **live API token** tied to your project's database.");
+        sb.AppendLine("> If you accidentally commit this file, go to the FlatPlanet Hub immediately and click **Regenerate** to revoke the token.");
+        sb.AppendLine("> Add this entry to your `.gitignore`: `CLAUDE-local.md`");
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine();
         sb.AppendLine("# Project Context");
         sb.AppendLine();
         sb.AppendLine("## Project");
@@ -392,7 +404,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("4. Use migration endpoints for CREATE TABLE / ALTER TABLE / DROP TABLE — never raw DDL in query endpoints");
         sb.AppendLine("5. All database access goes through the API — NEVER connect to the database directly");
         sb.AppendLine("6. If an API call fails, check the \"success\" field and \"error\" message in the response");
-        sb.AppendLine("7. If the token has expired, ask the user to regenerate CLAUDE.md from the Hub");
+        sb.AppendLine("7. If the token has expired, ask the user to regenerate CLAUDE-local.md from the FlatPlanet Hub");
         sb.AppendLine();
         sb.AppendLine("## Git Workflow");
         sb.AppendLine("1. Work on a feature branch: git checkout -b feature/{feature-name}");
@@ -445,10 +457,6 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             sb.AppendLine();
         }
 
-        sb.AppendLine("## IMPORTANT");
-        sb.AppendLine("- This file is LOCAL ONLY — add `CLAUDE-local.md` to your `.gitignore` immediately");
-        sb.AppendLine("- NEVER commit this file — it contains a live API token");
-        sb.AppendLine("- If the token expires, click \"Regenerate\" in the FlatPlanet Hub to get a new file");
         return sb.ToString();
     }
 }
