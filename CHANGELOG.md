@@ -5,6 +5,30 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.0.0] — 2026-04-06
+
+### Added
+
+- **`GET /api/projects/{id}/claude-config/workspace`** — new endpoint that generates and returns `CLAUDE-local.md` content. Response includes `content`, `filename` (`"CLAUDE-local.md"`), `gitignoreEntry` (`"CLAUDE-local.md"`), `tokenId`, and `expiresAt`. Smart token logic: if an active token exists for the user+project it is revoked and regenerated; otherwise a fresh token is minted.
+- **`project_type` field on projects** — new field accepted in `POST /api/projects` and `PUT /api/projects/{id}`. Valid values: `frontend`, `backend`, `database`, `fullstack` (default). Stored lowercase. Invalid values return 400.
+- **`auth_enabled` field on projects** — boolean flag (default `false`). When `true`, `CLAUDE-local.md` includes an `## Authentication (SP Integration)` section with SP login, route protection, permission check, refresh, and logout endpoints.
+- **Tech stack standards in `CLAUDE-local.md`** — Coding Standards section now renders per `project_type`: `frontend` (React/TypeScript + Netlify), `backend` (.NET 10 Clean Architecture + Azure), `database` (Supabase/PostgreSQL), `fullstack` (all three).
+- **DB migration `010_project_type_auth_enabled.sql`** — adds `project_type` and `auth_enabled` columns to `platform.projects`.
+
+### Changed
+
+- **`CLAUDE.md` → `CLAUDE-local.md`** — generated file renamed. It is now explicitly local-only and must be git-ignored. The `## IMPORTANT` section in the template warns users not to commit the file as it contains a live API token.
+- **`ProjectResponse`** — now includes `projectType` and `authEnabled` fields on all project endpoints.
+
+### Fixed
+
+- **BUG: HTTP 500 on all `/claude-config` endpoints** — `AuditService` had a backward-compat `INSERT INTO platform.audit_log` that used `project.AppId` (a `platform.apps` UUID) as `project_id`, violating the FK constraint `platform.audit_log.project_id → platform.projects(id)`. The backward-compat block has been removed. `AuditService` now writes only to `platform.auth_audit_log`.
+- **`auth_audit_log` FK constraints dropped** — `auth_audit_log_user_id_fkey` and `auth_audit_log_app_id_fkey` constraints removed. User and app IDs originate from the Security Platform and are not guaranteed to exist in HubApi's `platform.users` or `platform.apps` tables.
+- **`public.data_dictionary` RLS disabled** — Row Level Security was blocking queries through the HubApi DB proxy. RLS disabled on `public.data_dictionary` — it is a reference table with no sensitive data.
+- **`platform.projects.app_id` backfilled** — existing seeded projects (`dashboard-hub`, `fp-development-hub`, `platform-api`, `tala`) had `app_id = NULL`, causing 409/500 on claude-config calls. Linked to their respective Security Platform app IDs via SQL UPDATE.
+
+---
+
 ## [0.9.0] — 2026-04-01
 
 ### Added — FEAT-05: GitHub Repo Creation and CLAUDE.md Push on Project Create

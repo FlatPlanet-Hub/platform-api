@@ -1,9 +1,20 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 0.9.0
+**Version:** 1.0.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.0.0
+
+| Change | Details |
+|---|---|
+| `GET /claude-config/workspace` | New endpoint — returns `CLAUDE-local.md` content (local only, git-ignored) with smart token management |
+| `project_type` field | New on all project endpoints — `frontend`, `backend`, `database`, `fullstack` |
+| `auth_enabled` field | New on all project endpoints — when `true`, workspace content includes SP auth integration guide |
+| Fixed HTTP 500 on `/claude-config` | Removed bad audit log INSERT that violated FK constraint |
 
 ---
 
@@ -31,6 +42,7 @@
    - [Get Config](#get-config)
    - [Regenerate Token](#regenerate-token)
    - [Revoke Token](#revoke-token-2)
+   - [Workspace](#workspace)
 8. [DB Proxy — Schema](#db-proxy--schema)
    - [List Tables](#list-tables)
    - [Get Columns](#get-columns)
@@ -341,6 +353,8 @@ Returns all projects the authenticated user has access to. Access is determined 
         "branch": "main",
         "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
       },
+      "projectType": "fullstack",
+      "authEnabled": false,
       "members": null
     }
   ]
@@ -417,6 +431,8 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
 | `github.createRepo` | bool | Yes (if `github` set) | `true` to create a new repo in the configured org. `false` to link an existing repo. |
 | `github.repoName` | string | When `createRepo: true` | Name of the GitHub repo to create. |
 | `github.existingRepoUrl` | string | When `createRepo: false` | Full URL of the existing GitHub repo to link. |
+| `projectType` | string | No | `"fullstack"` | Project tech stack type. One of: `frontend`, `backend`, `database`, `fullstack` |
+| `authEnabled` | boolean | No | `false` | When `true`, workspace content includes SP authentication integration guide |
 
 ---
 
@@ -442,6 +458,8 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
       "branch": "main",
       "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
     },
+    "projectType": "fullstack",
+    "authEnabled": false,
     "members": null
   }
 }
@@ -504,6 +522,8 @@ Returns a single project by ID.
       "branch": "main",
       "repoLink": "https://github.com/FlatPlanet-Hub/acme-crm"
     },
+    "projectType": "fullstack",
+    "authEnabled": false,
     "members": null
   }
 }
@@ -518,6 +538,8 @@ Returns a single project by ID.
 | `404` | Project not found |
 
 **Notes:**
+- `projectType` — one of `frontend`, `backend`, `database`, `fullstack`. Controls which tech stack standards are injected into `CLAUDE-local.md`.
+- `authEnabled` — when `true`, `CLAUDE-local.md` workspace content includes the SP authentication integration guide.
 - **Admin override:** Users with the `view_all_projects` permission on the `dashboard-hub` app bypass the Security Platform authorization check and can retrieve any project. Their `roleName` is `"admin"` if they are not an explicit member of the project.
 
 ---
@@ -553,6 +575,8 @@ Updates project metadata. Requires `manage_members` permission (checked via Secu
 | `name` | string | No | New display name |
 | `description` | string | No | New description |
 | `techStack` | string | No | Free-text tech stack description |
+| `projectType` | string | No | Update project type (optional) |
+| `authEnabled` | boolean | No | Update auth enabled flag (optional) |
 
 All fields are optional. Only provided fields are updated.
 
@@ -947,6 +971,44 @@ Revokes the active API token for this project without issuing a replacement.
 | `403` | User does not have access to this project |
 | `404` | Project not found |
 | `409` | Project has no `appSlug` — legacy project not registered with Security Platform |
+
+---
+
+### Workspace
+
+#### `GET /api/projects/{id}/claude-config/workspace`
+
+Generates `CLAUDE-local.md` content for local Claude Code use. The file is **local only** — it must be added to `.gitignore` and never committed, as it contains a live API token.
+
+**Smart token logic:** If an active API token already exists for this user and project, it is revoked and a new one is issued. This prevents silent token accumulation.
+
+**Auth:** Security Platform JWT required.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "content": "# Project Context\n...",
+    "filename": "CLAUDE-local.md",
+    "gitignoreEntry": "CLAUDE-local.md",
+    "tokenId": "310a2e03-eda8-4bb3-9fcc-352eeb821b70",
+    "expiresAt": "2026-05-06T04:39:26Z"
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `content` | string | Full `CLAUDE-local.md` file content — write this to disk |
+| `filename` | string | Always `"CLAUDE-local.md"` |
+| `gitignoreEntry` | string | Add this string to your `.gitignore` |
+| `tokenId` | uuid | ID of the newly issued API token |
+| `expiresAt` | datetime | Token expiry (30 days from generation) |
+
+**Errors:** `401` no auth, `403` no project access, `404` project not found.
+
+> **Frontend note:** After calling this endpoint, write `content` to `{localProjectPath}/CLAUDE-local.md` and ensure `CLAUDE-local.md` is in `.gitignore`. The browser cannot write files directly — trigger a download or use the File System Access API.
 
 ---
 

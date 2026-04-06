@@ -115,7 +115,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/projects` | List projects the user has access to |
-| `POST` | `/api/projects` | Create project (optional GitHub repo creation + CLAUDE.md push) |
+| `POST` | `/api/projects` | Create project (optional GitHub repo + CLAUDE-local.md generation). Accepts projectType (frontend/backend/database/fullstack) and authEnabled. |
 | `GET` | `/api/projects/{id}` | Get project |
 | `PUT` | `/api/projects/{id}` | Update project |
 | `DELETE` | `/api/projects/{id}` | Deactivate project |
@@ -136,6 +136,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | `GET` | `/api/projects/{id}/claude-config` | Generate CLAUDE.md + 30-day API token |
 | `POST` | `/api/projects/{id}/claude-config/regenerate` | Revoke and regenerate token |
 | `DELETE` | `/api/projects/{id}/claude-config` | Revoke token |
+| `GET` | `/api/projects/{id}/claude-config/workspace` | Generate CLAUDE-local.md (local only, git-ignored) + smart token management |
 
 ### DB Proxy — requires API Token
 
@@ -184,6 +185,21 @@ Two token types accepted, both validated against the same JWT secret:
 
 ---
 
+## Development Standards
+
+All projects built on the FlatPlanet platform follow enforced tech stack standards. Standards are automatically injected into `CLAUDE-local.md` based on the project's `project_type`.
+
+| Type | Stack | Deploy |
+|---|---|---|
+| `frontend` | React.js + TypeScript (latest) | Netlify |
+| `backend` | .NET 10 / C# — Clean Architecture, SOLID, DI, design patterns | Azure App Service |
+| `database` | Supabase / PostgreSQL | — |
+| `fullstack` | All of the above | Netlify + Azure |
+
+Full standards: [FLATPLANET-STANDARDS](https://github.com/FlatPlanet-Hub/FLATPLANET-STANDARDS)
+
+---
+
 ## Running Tests
 
 ```bash
@@ -202,7 +218,7 @@ HubApi owns two tables:
 
 | Table | Purpose |
 |---|---|
-| `platform.projects` | Project registry |
+| `platform.projects` | Project registry — includes project_type, auth_enabled, app_id, GitHub fields |
 | `platform.api_tokens` | Claude Code API tokens (stored as SHA-256 hash) |
 
 Everything else (users, roles, sessions, audit) lives in the Security Platform.
