@@ -10,7 +10,7 @@ public static partial class SqlValidationHelper
     private static readonly string[] WriteBlockedKeywords =
         ["drop", "alter", "create", "truncate", "grant", "revoke"];
 
-    [GeneratedRegex(@"^project_[a-z][a-z0-9_]{2,62}$")]
+    [GeneratedRegex(@"^project_[a-z0-9][a-z0-9_]{2,62}$")]
     private static partial Regex SchemaNameRegex();
 
     [GeneratedRegex(@"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")]
