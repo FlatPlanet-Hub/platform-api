@@ -253,6 +253,18 @@ public sealed class ClaudeConfigService : IClaudeConfigService
                 sb.AppendLine("- GlobalExceptionMiddleware handles all errors — never swallow exceptions silently");
                 sb.AppendLine("- Always run `dotnet build` before committing");
                 sb.AppendLine("- Deploy target: Azure App Service");
+                sb.AppendLine();
+                sb.AppendLine("### Database Standards (Supabase / PostgreSQL)");
+                sb.AppendLine("- Supabase / PostgreSQL");
+                sb.AppendLine("- ALWAYS check the data dictionary before naming anything (Step 0)");
+                sb.AppendLine("- ALWAYS read the schema before writing DB code (Step 1)");
+                sb.AppendLine("- All DDL goes through migration endpoints — never raw DDL in query endpoints");
+                sb.AppendLine("- All queries use @paramName — never concatenate values into SQL");
+                sb.AppendLine("- snake_case for all table and column names");
+                sb.AppendLine("- UUID primary keys with gen_random_uuid()");
+                sb.AppendLine("- Always include created_at TIMESTAMPTZ DEFAULT now()");
+                sb.AppendLine("- Soft deletes preferred — use is_active boolean over hard deletes");
+                sb.AppendLine("- Always add indexes on foreign keys and frequently queried columns");
                 break;
         }
 

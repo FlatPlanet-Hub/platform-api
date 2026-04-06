@@ -64,6 +64,8 @@ public sealed class ProjectService : IProjectService
         if (!ValidProjectTypes.Contains(request.ProjectType.ToLowerInvariant()))
             throw new ArgumentException($"Invalid project_type '{request.ProjectType}'. Must be one of: frontend, backend, database, fullstack.");
 
+        var projectType = request.ProjectType.ToLowerInvariant();
+
         // 2. Register with SP first — if this fails, nothing is persisted
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
         await _securityPlatform.SetupProjectRolesAsync(appId);
@@ -80,7 +82,7 @@ public sealed class ProjectService : IProjectService
             AppSlug        = appSlug,
             OwnerId        = userId,
             TechStack      = request.TechStack,
-            ProjectType    = request.ProjectType,
+            ProjectType    = projectType,
             AuthEnabled    = request.AuthEnabled,
             GitHubRepo     = repoFullName,
             GitHubRepoName = repoName,
@@ -173,7 +175,7 @@ public sealed class ProjectService : IProjectService
         {
             if (!ValidProjectTypes.Contains(request.ProjectType.ToLowerInvariant()))
                 throw new ArgumentException($"Invalid project_type '{request.ProjectType}'. Must be one of: frontend, backend, database, fullstack.");
-            project.ProjectType = request.ProjectType;
+            project.ProjectType = request.ProjectType.ToLowerInvariant();
         }
         if (request.AuthEnabled is not null) project.AuthEnabled = request.AuthEnabled.Value;
         project.UpdatedAt = DateTime.UtcNow;
