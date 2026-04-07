@@ -421,6 +421,22 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("- Follow naming conventions of the existing codebase");
         sb.AppendLine();
 
+        sb.AppendLine("## Project Management");
+        sb.AppendLine();
+        sb.AppendLine("Use these endpoints (with your SP JWT, not the API token) to manage this project:");
+        sb.AppendLine();
+        sb.AppendLine("### Enable Authentication on this project");
+        sb.AppendLine($"PUT {baseUrl}/api/projects/{pid}");
+        sb.AppendLine("Header: Authorization: Bearer <SP JWT>");
+        sb.AppendLine("Body: { \"authEnabled\": true }");
+        sb.AppendLine("After enabling: regenerate this file to get the SP auth integration guide injected.");
+        sb.AppendLine();
+        sb.AppendLine("### Regenerate this workspace file");
+        sb.AppendLine($"POST {baseUrl}/api/projects/{pid}/claude-config/regenerate");
+        sb.AppendLine("Header: Authorization: Bearer <SP JWT>");
+        sb.AppendLine("Returns a fresh CLAUDE-local.md with a new token. Ask the user to save the new file.");
+        sb.AppendLine();
+
         if (project.AuthEnabled)
         {
             const string spBaseUrl = "https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net";
