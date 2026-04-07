@@ -39,11 +39,7 @@ public sealed class GlobalExceptionMiddleware
         };
 
         if (statusCode == StatusCodes.Status500InternalServerError)
-        {
             _logger.LogError(ex, "Unhandled exception on {Method} {Path}", context.Request.Method, context.Request.Path);
-            // DIAGNOSTIC ONLY — remove before final release
-            message = $"[{ex.GetType().Name}] {ex.Message}";
-        }
         else
             _logger.LogWarning("Handled exception ({StatusCode}): {Message}", statusCode, ex.Message);
 
