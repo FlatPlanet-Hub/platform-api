@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
 using FlatPlanet.Platform.Application.DTOs;
@@ -162,14 +163,7 @@ public sealed class DbProxyService : IDbProxyService
         await conn.OpenAsync();
         await SetSearchPathAsync(conn, schema);
 
-        DynamicParameters? parameters = null;
-        if (request.Parameters is not null)
-        {
-            parameters = new DynamicParameters();
-            foreach (var (key, value) in request.Parameters)
-                parameters.Add(key, value);
-        }
-
+        var parameters = BuildParameters(request.Parameters);
         return await conn.QueryAsync(request.Sql, parameters);
     }
 
@@ -179,15 +173,31 @@ public sealed class DbProxyService : IDbProxyService
         await conn.OpenAsync();
         await SetSearchPathAsync(conn, schema);
 
-        DynamicParameters? parameters = null;
-        if (request.Parameters is not null)
-        {
-            parameters = new DynamicParameters();
-            foreach (var (key, value) in request.Parameters)
-                parameters.Add(key, value);
-        }
-
+        var parameters = BuildParameters(request.Parameters);
         return await conn.ExecuteAsync(request.Sql, parameters);
+    }
+
+    private static DynamicParameters? BuildParameters(Dictionary<string, object>? raw)
+    {
+        if (raw is null) return null;
+        var dp = new DynamicParameters();
+        foreach (var (key, value) in raw)
+            dp.Add(key, UnwrapJsonElement(value));
+        return dp;
+    }
+
+    private static object? UnwrapJsonElement(object? value)
+    {
+        if (value is not JsonElement el) return value;
+        return el.ValueKind switch
+        {
+            JsonValueKind.String  => el.GetString(),
+            JsonValueKind.Number  => el.TryGetInt64(out var l) ? l : el.GetDouble(),
+            JsonValueKind.True    => true,
+            JsonValueKind.False   => false,
+            JsonValueKind.Null    => null,
+            _                     => el.ToString()
+        };
     }
 
     private static string BuildCreateTableSql(string schema, CreateTableRequest request)

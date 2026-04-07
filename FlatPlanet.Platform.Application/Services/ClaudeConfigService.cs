@@ -369,9 +369,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("{");
         sb.AppendLine("  \"tableName\": \"table_name\",");
         sb.AppendLine("  \"operations\": [");
-        sb.AppendLine("    { \"action\": \"add\", \"columnName\": \"new_col\", \"type\": \"text\" },");
-        sb.AppendLine("    { \"action\": \"drop\", \"columnName\": \"old_col\" },");
-        sb.AppendLine("    { \"action\": \"rename\", \"columnName\": \"old_name\", \"newName\": \"new_name\" }");
+        sb.AppendLine("    { \"type\": \"AddColumn\", \"columnName\": \"new_col\", \"dataType\": \"text\" },");
+        sb.AppendLine("    { \"type\": \"DropColumn\", \"columnName\": \"old_col\" },");
+        sb.AppendLine("    { \"type\": \"RenameColumn\", \"columnName\": \"old_name\", \"newColumnName\": \"new_name\" }");
         sb.AppendLine("  ]");
         sb.AppendLine("}");
         sb.AppendLine("```");
