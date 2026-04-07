@@ -133,7 +133,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/projects/{id}/claude-config` | Generate CLAUDE.md + 30-day API token |
+| `GET` | `/api/projects/{id}/claude-config` | Generate CLAUDE-local.md content + 30-day API token |
 | `POST` | `/api/projects/{id}/claude-config/regenerate` | Revoke and regenerate token |
 | `DELETE` | `/api/projects/{id}/claude-config` | Revoke token |
 | `GET` | `/api/projects/{id}/claude-config/workspace` | Generate CLAUDE-local.md (local only, git-ignored) + smart token management |
@@ -173,7 +173,7 @@ Two token types accepted, both validated against the same JWT secret:
 | Control | Implementation |
 |---|---|
 | Schema isolation | `SET search_path` executed before every query |
-| Schema name validation | Must match `^project_[a-z][a-z0-9_]{2,62}$` |
+| Schema name validation | Must match `^project_[a-z0-9][a-z0-9_]{2,62}$` |
 | Identifier validation | Table/column names validated against allowlist before DDL |
 | Read query blocking | Blocks DML + DDL keywords: `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE` |
 | Write query blocking | Blocks DDL keywords only |

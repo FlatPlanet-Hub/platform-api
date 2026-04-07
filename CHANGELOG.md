@@ -5,6 +5,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.0.1] — 2026-04-07
+
+### Fixed
+
+- **BUG-1 — Dapper `@param` binding broken for parameterized queries** — `Dictionary<string, object>` DTO caused System.Text.Json to deserialize values as `JsonElement` instead of native .NET types, which Dapper passed to Postgres as raw JSON strings. Fixed by changing `Parameters` to `Dictionary<string, System.Text.Json.JsonElement>?` in `DbRequestDtos.cs` and adding `UnwrapJsonElement()` in `DbProxyService.cs` to convert each value to its native type before Dapper binding. Parameterized `@param` syntax now works correctly for all types (bool, text, numeric, UUID, timestamp, ILIKE).
+- **BUG-2 — `AlterOperationType` enum values rejected when sent as strings** — JSON deserializer did not accept camelCase string enum values (e.g. `"addColumn"`) for `AlterOperationType`. Fixed by adding `JsonStringEnumConverter(JsonNamingPolicy.CamelCase)` to `AddJsonOptions` in `Program.cs`.
+- **Schema regex rejected digit-first schema names** — `IsValidSchemaName` in `SqlValidationHelper.cs` used `^project_[a-z]...` which rejected hex-based schema names where the first character after `project_` is a digit (e.g. `project_03557ada`). Regex updated to `^project_[a-z0-9][a-z0-9_]{2,62}$`.
+- **`CLAUDE-local.md` alter-table example had wrong field names** — Example in the generated template used `action`, `type`, and `newName`; corrected to `type`, `dataType`, and `newColumnName` to match the actual API contract.
+
+### Changed
+
+- **`CLAUDE-local.md` template enhancements** — `ClaudeConfigService.cs` template now includes: (1) a `DO NOT COMMIT` warning header, (2) a Session Startup section instructing Claude to read `CONVERSATION-LOG.md` on startup, (3) a Project Management section covering auth enable and endpoint regeneration, (4) an SP (Security Platform) section that is always injected regardless of `authEnabled` flag. `authEnabled` defaults to `false`; `projectType` defaults to `fullstack`.
+
+### Integration Tests
+
+- All 13 integration tests pass: health, schema introspection, create/alter/drop table, parameterized read/write (bool, text, numeric, ILIKE), UUID/timestamp defaults, RLS enable.
+
+---
+
 ## [1.0.0] — 2026-04-06
 
 ### Added
