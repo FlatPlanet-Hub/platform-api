@@ -5,13 +5,13 @@ namespace FlatPlanet.Platform.Application.DTOs;
 public sealed class ReadQueryRequest
 {
     public string Sql { get; init; } = string.Empty;
-    public Dictionary<string, object>? Parameters { get; init; }
+    public Dictionary<string, System.Text.Json.JsonElement>? Parameters { get; init; }
 }
 
 public sealed class WriteQueryRequest
 {
     public string Sql { get; init; } = string.Empty;
-    public Dictionary<string, object>? Parameters { get; init; }
+    public Dictionary<string, System.Text.Json.JsonElement>? Parameters { get; init; }
 }
 
 public sealed class CreateTableRequest

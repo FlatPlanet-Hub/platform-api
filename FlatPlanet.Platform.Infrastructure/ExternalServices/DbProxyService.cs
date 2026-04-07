@@ -177,19 +177,17 @@ public sealed class DbProxyService : IDbProxyService
         return await conn.ExecuteAsync(request.Sql, parameters);
     }
 
-    private static DynamicParameters? BuildParameters(Dictionary<string, object>? raw)
+    private static DynamicParameters? BuildParameters(Dictionary<string, JsonElement>? raw)
     {
         if (raw is null) return null;
         var dp = new DynamicParameters();
-        foreach (var (key, value) in raw)
-            dp.Add(key, UnwrapJsonElement(value));
+        foreach (var (key, el) in raw)
+            dp.Add(key, UnwrapJsonElement(el));
         return dp;
     }
 
-    private static object? UnwrapJsonElement(object? value)
-    {
-        if (value is not JsonElement el) return value;
-        return el.ValueKind switch
+    private static object? UnwrapJsonElement(JsonElement el) =>
+        el.ValueKind switch
         {
             JsonValueKind.String  => el.GetString(),
             JsonValueKind.Number  => el.TryGetInt64(out var l) ? l : el.GetDouble(),
@@ -198,7 +196,6 @@ public sealed class DbProxyService : IDbProxyService
             JsonValueKind.Null    => null,
             _                     => el.ToString()
         };
-    }
 
     private static string BuildCreateTableSql(string schema, CreateTableRequest request)
     {
