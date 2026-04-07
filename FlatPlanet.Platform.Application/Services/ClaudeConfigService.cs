@@ -290,6 +290,15 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine();
         sb.AppendLine("---");
         sb.AppendLine();
+        sb.AppendLine("## Session Startup — Read This First");
+        sb.AppendLine();
+        sb.AppendLine("Before doing anything else, read `CONVERSATION-LOG.md` in the project root.");
+        sb.AppendLine("This is Claude's memory across sessions — current state, decisions made, open issues, what to do next.");
+        sb.AppendLine("If the file does not exist yet, create it before closing the session.");
+        sb.AppendLine("At the end of every session, append a new entry to `CONVERSATION-LOG.md` before committing.");
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine();
         sb.AppendLine("# Project Context");
         sb.AppendLine();
         sb.AppendLine("## Project");
