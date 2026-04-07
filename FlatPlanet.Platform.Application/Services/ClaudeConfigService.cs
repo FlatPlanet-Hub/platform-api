@@ -437,41 +437,45 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("Returns a fresh CLAUDE-local.md with a new token. Ask the user to save the new file.");
         sb.AppendLine();
 
-        if (project.AuthEnabled)
-        {
-            const string spBaseUrl = "https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net";
-            sb.AppendLine("## Authentication (SP Integration)");
-            sb.AppendLine();
-            sb.AppendLine("This project uses FlatPlanet Security Platform for authentication.");
-            sb.AppendLine("Do NOT build your own auth — use the endpoints below.");
-            sb.AppendLine();
-            sb.AppendLine($"App Slug:    {project.AppSlug ?? project.SchemaName}");
-            sb.AppendLine($"App ID:      {project.AppId}");
-            sb.AppendLine($"SP Base URL: {spBaseUrl}");
-            sb.AppendLine();
-            sb.AppendLine("### Login");
-            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/login");
-            sb.AppendLine("Body: { \"email\": \"...\", \"password\": \"...\" }");
-            sb.AppendLine("Returns: { accessToken, refreshToken, expiresIn, user }");
-            sb.AppendLine();
-            sb.AppendLine("### Protect Routes");
-            sb.AppendLine("- All protected routes require: Authorization: Bearer <accessToken>");
-            sb.AppendLine("- JWT issuer: flatplanet-security");
-            sb.AppendLine("- JWT audience: flatplanet-apps");
-            sb.AppendLine("- On 401 → redirect to login");
-            sb.AppendLine();
-            sb.AppendLine("### Check Permission");
-            sb.AppendLine($"POST {spBaseUrl}/api/v1/authorize");
-            sb.AppendLine($"Body: {{ \"appSlug\": \"{project.AppSlug ?? project.SchemaName}\", \"resourceIdentifier\": \"...\", \"requiredPermission\": \"read\" }}");
-            sb.AppendLine();
-            sb.AppendLine("### Refresh Token");
-            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/refresh");
-            sb.AppendLine("Body: { \"refreshToken\": \"...\" }");
-            sb.AppendLine();
-            sb.AppendLine("### Logout");
-            sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/logout");
-            sb.AppendLine();
-        }
+        const string spBaseUrl = "https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net";
+        var appSlug = project.AppSlug ?? project.SchemaName;
+
+        sb.AppendLine("## FlatPlanet Security Platform (SP)");
+        sb.AppendLine();
+        sb.AppendLine("All FlatPlanet projects use the Security Platform for authentication and authorization.");
+        sb.AppendLine("NEVER build your own auth system — always use the SP endpoints below.");
+        sb.AppendLine();
+        sb.AppendLine($"SP Base URL:  {spBaseUrl}");
+        sb.AppendLine($"App Slug:     {appSlug}");
+        sb.AppendLine($"App ID:       {project.AppId}");
+        sb.AppendLine($"JWT Issuer:   flatplanet-security");
+        sb.AppendLine($"JWT Audience: flatplanet-apps");
+        sb.AppendLine($"Auth Status:  {(project.AuthEnabled ? "ENABLED — auth is active on this project" : "DISABLED — enable when ready (see Project Management above)")}");
+        sb.AppendLine();
+        sb.AppendLine("### Login");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/login");
+        sb.AppendLine($"Body: {{ \"email\": \"...\", \"password\": \"...\", \"appSlug\": \"{appSlug}\" }}");
+        sb.AppendLine("Returns: { accessToken (60 min), refreshToken, expiresIn, user }");
+        sb.AppendLine();
+        sb.AppendLine("### Protect Routes");
+        sb.AppendLine("All protected routes require:");
+        sb.AppendLine("  Authorization: Bearer <accessToken>");
+        sb.AppendLine("On 401 → try refresh. If refresh fails → redirect to login.");
+        sb.AppendLine();
+        sb.AppendLine("### Check Permission");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/authorize");
+        sb.AppendLine($"Body: {{ \"appSlug\": \"{appSlug}\", \"resourceIdentifier\": \"/your-route\", \"requiredPermission\": \"read\" }}");
+        sb.AppendLine("Returns: { allowed: true/false } — HTTP 200 either way. allowed: false → show no-access page.");
+        sb.AppendLine();
+        sb.AppendLine("### Refresh Token");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/refresh");
+        sb.AppendLine("Body: { \"refreshToken\": \"...\" }");
+        sb.AppendLine("Single-use — store the new token immediately. On 401 → redirect to login.");
+        sb.AppendLine();
+        sb.AppendLine("### Logout");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/logout");
+        sb.AppendLine("Revokes all refresh tokens. Clear both tokens client-side and redirect to login.");
+        sb.AppendLine();
 
         return sb.ToString();
     }
