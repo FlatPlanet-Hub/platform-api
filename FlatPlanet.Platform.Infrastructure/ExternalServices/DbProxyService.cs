@@ -162,9 +162,13 @@ public sealed class DbProxyService : IDbProxyService
         await conn.OpenAsync();
         await SetSearchPathAsync(conn, schema);
 
-        var parameters = request.Parameters is not null
-            ? new DynamicParameters(request.Parameters)
-            : null;
+        DynamicParameters? parameters = null;
+        if (request.Parameters is not null)
+        {
+            parameters = new DynamicParameters();
+            foreach (var (key, value) in request.Parameters)
+                parameters.Add(key, value);
+        }
 
         return await conn.QueryAsync(request.Sql, parameters);
     }
@@ -175,9 +179,13 @@ public sealed class DbProxyService : IDbProxyService
         await conn.OpenAsync();
         await SetSearchPathAsync(conn, schema);
 
-        var parameters = request.Parameters is not null
-            ? new DynamicParameters(request.Parameters)
-            : null;
+        DynamicParameters? parameters = null;
+        if (request.Parameters is not null)
+        {
+            parameters = new DynamicParameters();
+            foreach (var (key, value) in request.Parameters)
+                parameters.Add(key, value);
+        }
 
         return await conn.ExecuteAsync(request.Sql, parameters);
     }
