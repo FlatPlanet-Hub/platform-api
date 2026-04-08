@@ -7,5 +7,6 @@ public interface IProvisionAzureService
     Task<ProvisionAzureResponse> ProvisionAsync(
         Guid projectId,
         Guid userId,
+        string userEmail,
         string hubBaseUrl);
 }

@@ -9,9 +9,9 @@ namespace FlatPlanet.Platform.Infrastructure.Azure;
 
 public sealed class ProvisionAzureService(
     IProjectRepository projectRepo,
-    IApiTokenRepository apiTokenRepo,
     IAzureAppServiceProvisioner provisioner,
     IClaudeConfigService claudeConfig,
+    ISecurityPlatformService securityPlatform,
     IOptions<JwtSettings> jwtOptions,
     ILogger<ProvisionAzureService> logger) : IProvisionAzureService
 {
@@ -20,6 +20,7 @@ public sealed class ProvisionAzureService(
     public async Task<ProvisionAzureResponse> ProvisionAsync(
         Guid projectId,
         Guid userId,
+        string userEmail,
         string hubBaseUrl)
     {
         // 1. Load project
@@ -34,13 +35,48 @@ public sealed class ProvisionAzureService(
         if (!string.IsNullOrWhiteSpace(project.AzureAppServiceName))
             throw new InvalidOperationException("Azure App Service is already provisioned for this project.");
 
-        // 4. Fetch most recent active token for this app.
-        // Only the token hash is persisted — raw tokens are not stored.
-        // PlatformApiToken will be null here; the portal can be used to set it manually.
-        await apiTokenRepo.GetActiveByAppIdAsync(project.AppId.Value);
-        string? platformApiToken = null;
+        // 4. Authorization check: user must have write/manage_members/owner on the project's app,
+        //    or have view_all_projects on dashboard-hub.
+        var appAccess = await securityPlatform.GetUserAppAccessAsync(userId);
 
-        // 5. Build env vars
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase));
+
+        if (!canViewAll)
+        {
+            var projectAccess = appAccess.FirstOrDefault(a => a.AppId == project.AppId.Value);
+            var hasPermission = projectAccess is not null &&
+                projectAccess.Permissions.Any(p =>
+                    p.Equals("write", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("manage_members", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("owner", StringComparison.OrdinalIgnoreCase));
+
+            if (!hasPermission)
+                throw new UnauthorizedAccessException("You do not have permission to provision Azure for this project.");
+        }
+
+        // 5. Read JWT settings (already loaded via _jwt)
+
+        // 6. Generate API token synchronously so the raw token is available for the App Service env var.
+        //    RenderAndStoreTokenAsync generates a raw token, stores the hash in api_tokens,
+        //    and returns the rendered CLAUDE-local.md content (we discard the markdown here).
+        // Raw tokens are never stored (only hashes) — PlatformApi__Token is set via
+        // the raw token returned from RenderAndStoreTokenAsync below.
+        var claudeMd = await claudeConfig.RenderAndStoreTokenAsync(project, userId, userEmail, hubBaseUrl);
+
+        // Extract the raw token embedded in the rendered CLAUDE-local.md content.
+        // The token line format is: PlatformApi__Token=<rawToken>
+        string? platformApiToken = null;
+        var tokenMatch = Regex.Match(claudeMd, @"PlatformApi__Token=([^\s\r\n]+)");
+        if (tokenMatch.Success)
+            platformApiToken = tokenMatch.Groups[1].Value;
+
+        logger.LogInformation(
+            "CLAUDE-local.md rendered for project {ProjectId}; token captured: {HasToken}",
+            projectId, platformApiToken is not null);
+
+        // 7. Build env vars — use the raw token captured above as PlatformApiToken
         var envVars = new AppServiceEnvVars(
             JwtSecretKey:       _jwt.SecretKey,
             JwtIssuer:          _jwt.Issuer,
@@ -49,33 +85,20 @@ public sealed class ProvisionAzureService(
             PlatformApiToken:   platformApiToken,
             SchemaName:         project.SchemaName);
 
-        // 6. Generate a safe App Service name
+        // 8. Generate a safe App Service name
         var appServiceName = BuildAppServiceName(project.AppSlug ?? project.SchemaName);
 
-        // 7. Provision
+        // 9. Provision
         var result = await provisioner.ProvisionAsync(appServiceName, envVars);
 
-        // 8. Persist provisioned state
+        // 10. Persist provisioned state
         project.AzureAppServiceName = result.AppServiceName;
         project.AzureAppServiceUrl  = result.AppServiceUrl;
         project.UpdatedAt           = DateTime.UtcNow;
         await projectRepo.UpdateAsync(project);
 
-        // 9. Fire-and-forget CLAUDE-local.md regeneration
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await claudeConfig.RenderAndStoreTokenAsync(project, userId, string.Empty, hubBaseUrl);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to regenerate CLAUDE-local.md after Azure provisioning for project {ProjectId}", projectId);
-            }
-        });
-
-        // 10. Return result
-        return new ProvisionAzureResponse(result.AppServiceName, result.AppServiceUrl);
+        // 11. Return result — surface the raw token so the caller can relay it to the user
+        return new ProvisionAzureResponse(result.AppServiceName, result.AppServiceUrl, envVars.PlatformApiToken);
     }
 
     private static string BuildAppServiceName(string slug)
@@ -94,7 +117,7 @@ public sealed class ProvisionAzureService(
         name = $"{name}-api";
 
         // Enforce max 60 chars (Azure limit is 60 for web app names)
-        // The spec says max 55 chars before appending -api, so total max 59
+        // max 56 chars before -api suffix (total max 60 chars per Azure limit)
         if (name.Length > 60)
             name = name[..56].TrimEnd('-') + "-api";
 

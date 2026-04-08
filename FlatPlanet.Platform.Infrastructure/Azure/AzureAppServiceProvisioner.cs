@@ -37,6 +37,8 @@ public sealed class AzureAppServiceProvisioner(
             SiteConfig = new SiteConfigProperties
             {
                 NetFrameworkVersion = "v10.0",
+                // WindowsFxVersion is required for Windows App Service plans.
+                // If migrating to Linux, change to LinuxFxVersion = "DOTNET|10.0".
                 WindowsFxVersion = "DOTNET|10.0",
                 IsAlwaysOn = false,
             },

@@ -88,8 +88,9 @@ public sealed class ProjectController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
         var hubBaseUrl = $"{Request.Scheme}://{Request.Host}";
-        var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, hubBaseUrl);
+        var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, userEmail, hubBaseUrl);
         return OkData(result);
     }
 }
