@@ -132,7 +132,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         };
     }
 
-    public async Task<string> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
+    public async Task<(string RawToken, string RenderedMarkdown)> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
     {
         var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
         var roleEntry = appAccess.FirstOrDefault(r => r.AppId == project.AppId);
@@ -158,7 +158,8 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             CreatedAt   = DateTime.UtcNow
         });
 
-        return RenderTemplate(project, rawToken, expiresAt, baseUrl);
+        var renderedMarkdown = RenderTemplate(project, rawToken, expiresAt, baseUrl);
+        return (rawToken, renderedMarkdown);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -510,9 +511,27 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             sb.AppendLine("Resource Group:   FPPlatform");
             sb.AppendLine("Region:           southeastasia");
             sb.AppendLine();
-            sb.AppendLine("### Deploy via Azure CLI");
+            sb.AppendLine("### Standard env vars (set automatically at provision time)");
+            sb.AppendLine("These were configured automatically — you do not need to set these:");
             sb.AppendLine();
-            sb.AppendLine("From your project root after building:");
+            sb.AppendLine("  Jwt__SecretKey              (SP signing secret)");
+            sb.AppendLine("  Jwt__Issuer                 flatplanet-security");
+            sb.AppendLine("  Jwt__Audience               flatplanet-apps");
+            sb.AppendLine($"  PlatformApi__BaseUrl        {baseUrl}");
+            sb.AppendLine("  PlatformApi__Token          (project scoped token — check portal if missing)");
+            sb.AppendLine($"  ConnectionStrings__Default  (Supabase, scoped to schema {project.SchemaName})");
+            sb.AppendLine();
+            sb.AppendLine("### Project-specific env vars (set these manually in Azure Portal)");
+            sb.AppendLine($"Navigate to: Azure Portal → {project.AzureAppServiceName} → Environment variables");
+            sb.AppendLine();
+            sb.AppendLine("Add any secrets your project needs, for example:");
+            sb.AppendLine("  SendGrid__ApiKey");
+            sb.AppendLine("  Stripe__SecretKey");
+            sb.AppendLine("  Twilio__AuthToken");
+            sb.AppendLine("  ExternalApi__Key");
+            sb.AppendLine();
+            sb.AppendLine("### Deploy via Azure CLI");
+            sb.AppendLine("From your project root:");
             sb.AppendLine();
             sb.AppendLine("  az login");
             sb.AppendLine("  dotnet publish -c Release -o ./publish");

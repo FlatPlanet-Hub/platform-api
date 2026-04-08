@@ -61,7 +61,9 @@ public sealed class ProjectRepository : IProjectRepository
             SET name = @Name, description = @Description, github_repo = @GitHubRepo,
                 tech_stack = @TechStack, project_type = @ProjectType, auth_enabled = @AuthEnabled,
                 is_active = @IsActive, app_id = @AppId,
-                app_slug = @AppSlug, updated_at = @UpdatedAt
+                app_slug = @AppSlug, updated_at = @UpdatedAt,
+                azure_app_service_name = @AzureAppServiceName,
+                azure_app_service_url = @AzureAppServiceUrl
             WHERE id = @Id
             """;
         await conn.ExecuteAsync(sql, project);

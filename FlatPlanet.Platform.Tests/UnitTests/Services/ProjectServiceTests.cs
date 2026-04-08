@@ -67,7 +67,7 @@ public sealed class ProjectServiceTests
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
         _claudeConfig.Setup(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), userId, It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync("# CLAUDE.md content");
+            .ReturnsAsync(("raw-token", "# CLAUDE.md content"));
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();
@@ -99,7 +99,7 @@ public sealed class ProjectServiceTests
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
         _claudeConfig.Setup(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), userId, It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync("# CLAUDE.md content");
+            .ReturnsAsync(("raw-token", "# CLAUDE.md content"));
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();

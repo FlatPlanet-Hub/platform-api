@@ -100,8 +100,8 @@ public sealed class ProjectService : IProjectService
         {
             _ = _gitHubRepo.SeedProjectFilesAsync(created);
 
-            var claudeMd = await _claudeConfig.RenderAndStoreTokenAsync(created, userId, actorEmail, baseUrl);
-            _ = _gitHubRepo.PushClaudeMdAsync(repoFullName, branch, claudeMd);
+            var (_, renderedMarkdown) = await _claudeConfig.RenderAndStoreTokenAsync(created, userId, actorEmail, baseUrl);
+            _ = _gitHubRepo.PushClaudeMdAsync(repoFullName, branch, renderedMarkdown);
         }
 
         // 5. Create project schema in Supabase (fire-and-forget)

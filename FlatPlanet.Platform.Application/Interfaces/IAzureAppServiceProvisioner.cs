@@ -1,3 +1,5 @@
+using FlatPlanet.Platform.Application.DTOs.Azure;
+
 namespace FlatPlanet.Platform.Application.Interfaces;
 
 /// <summary>
@@ -6,10 +8,12 @@ namespace FlatPlanet.Platform.Application.Interfaces;
 public interface IAzureAppServiceProvisioner
 {
     /// <summary>
-    /// Creates an Azure App Service with the given name.
+    /// Creates an Azure App Service and sets all standard environment variables.
     /// Returns (AppServiceName, AppServiceUrl) on success.
-    /// Throws InvalidOperationException if the name is already taken in Azure (maps to 409).
+    /// Throws InvalidOperationException if name is already taken in Azure (maps to 409).
     /// Throws Exception with Azure error message for all other ARM failures (maps to 500).
     /// </summary>
-    Task<(string AppServiceName, string AppServiceUrl)> ProvisionAsync(string appServiceName);
+    Task<(string AppServiceName, string AppServiceUrl)> ProvisionAsync(
+        string appServiceName,
+        AppServiceEnvVars envVars);
 }
