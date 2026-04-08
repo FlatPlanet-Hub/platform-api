@@ -486,6 +486,46 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("Revokes all refresh tokens. Clear both tokens client-side and redirect to login.");
         sb.AppendLine();
 
+        // Azure Deployment Section
+        sb.AppendLine("## Azure Deployment");
+        sb.AppendLine();
+        if (string.IsNullOrWhiteSpace(project.AzureAppServiceName))
+        {
+            sb.AppendLine("Status: NOT PROVISIONED");
+            sb.AppendLine();
+            sb.AppendLine("This project has no Azure App Service yet.");
+            sb.AppendLine();
+            sb.AppendLine("To provision, tell Claude Code:");
+            sb.AppendLine("  \"provision Azure for this project\"");
+            sb.AppendLine();
+            sb.AppendLine("Claude Code will call:");
+            sb.AppendLine($"  POST {baseUrl}/api/projects/{pid}/provision-azure");
+            sb.AppendLine("And update this file automatically once complete.");
+        }
+        else
+        {
+            sb.AppendLine("Status: PROVISIONED");
+            sb.AppendLine($"App Service:      {project.AzureAppServiceName}");
+            sb.AppendLine($"App Service URL:  {project.AzureAppServiceUrl ?? "pending"}");
+            sb.AppendLine("Resource Group:   FPPlatform");
+            sb.AppendLine("Region:           southeastasia");
+            sb.AppendLine();
+            sb.AppendLine("### Deploy via Azure CLI");
+            sb.AppendLine();
+            sb.AppendLine("From your project root after building:");
+            sb.AppendLine();
+            sb.AppendLine("  az login");
+            sb.AppendLine("  dotnet publish -c Release -o ./publish");
+            sb.AppendLine("  az webapp deploy \\");
+            sb.AppendLine("    --resource-group FPPlatform \\");
+            sb.AppendLine($"    --name {project.AzureAppServiceName} \\");
+            sb.AppendLine("    --src-path ./publish \\");
+            sb.AppendLine("    --type zip");
+            sb.AppendLine();
+            sb.AppendLine("Tell Claude Code \"deploy to Azure\" and it will run this for you.");
+        }
+
+        sb.AppendLine();
         return sb.ToString();
     }
 }
