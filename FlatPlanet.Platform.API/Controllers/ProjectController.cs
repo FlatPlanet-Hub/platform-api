@@ -11,10 +11,14 @@ namespace FlatPlanet.Platform.API.Controllers;
 public sealed class ProjectController : ApiControllerBase
 {
     private readonly IProjectService _projectService;
+    private readonly IProvisionAzureService _provisionAzureService;
 
-    public ProjectController(IProjectService projectService)
+    public ProjectController(
+        IProjectService projectService,
+        IProvisionAzureService provisionAzureService)
     {
         _projectService = projectService;
+        _provisionAzureService = provisionAzureService;
     }
 
     [HttpPost]
@@ -78,5 +82,14 @@ public sealed class ProjectController : ApiControllerBase
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
+    [HttpPost("{id:guid}/provision-azure")]
+    public async Task<IActionResult> ProvisionAzure(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
 
+        var hubBaseUrl = $"{Request.Scheme}://{Request.Host}";
+        var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, hubBaseUrl);
+        return OkData(result);
+    }
 }

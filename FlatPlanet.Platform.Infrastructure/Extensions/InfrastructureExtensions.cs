@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Application.Services;
+using FlatPlanet.Platform.Infrastructure.Azure;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using FlatPlanet.Platform.Infrastructure.Repositories;
@@ -64,6 +65,10 @@ public static class InfrastructureExtensions
         services.AddScoped<IProjectMemberService, ProjectMemberService>();
         services.AddScoped<IClaudeConfigService, ClaudeConfigService>();
         services.AddScoped<IApiTokenService, ApiTokenService>();
+
+        // Azure provisioning
+        services.AddScoped<IAzureAppServiceProvisioner, AzureAppServiceProvisioner>();
+        services.AddScoped<IProvisionAzureService, ProvisionAzureService>();
 
         return services;
     }
