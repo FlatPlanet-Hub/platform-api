@@ -11,6 +11,8 @@ public sealed class SqlValidationHelperTests
     [InlineData("project_abc123")]
     [InlineData("project_my_project")]
     [InlineData("project_abc_def_ghi")]
+    [InlineData("project_1abc")]
+    [InlineData("project_03557ada")]
     public void IsValidSchemaName_ShouldReturnTrue_WhenSchemaIsValid(string schema)
     {
         var result = SqlValidationHelper.IsValidSchemaName(schema);
@@ -25,7 +27,6 @@ public sealed class SqlValidationHelperTests
     [InlineData("PROJECT_ABC")]
     [InlineData("project_AB")]
     [InlineData("project_")]
-    [InlineData("project_1abc")]
     [InlineData(null!)]
     public void IsValidSchemaName_ShouldReturnFalse_WhenSchemaIsInvalid(string? schema)
     {
