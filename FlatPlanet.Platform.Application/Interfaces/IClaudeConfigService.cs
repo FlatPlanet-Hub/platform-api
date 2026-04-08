@@ -13,8 +13,8 @@ public interface IClaudeConfigService
     Task<WorkspaceResponse> GetWorkspaceAsync(Guid userId, Guid projectId, string baseUrl, string userName, string userEmail);
 
     /// <summary>
-    /// Generates an API token, stores it in api_tokens, and returns the rendered CLAUDE.md content.
-    /// Called during project creation to push CLAUDE.md to the repo.
+    /// Generates an API token, stores it in api_tokens, and returns both the raw token and the
+    /// rendered CLAUDE-local.md content. Called during project creation and Azure provisioning.
     /// </summary>
-    Task<string> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl);
+    Task<(string RawToken, string RenderedMarkdown)> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl);
 }

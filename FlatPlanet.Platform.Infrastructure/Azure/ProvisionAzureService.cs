@@ -58,19 +58,11 @@ public sealed class ProvisionAzureService(
 
         // 5. Read JWT settings (already loaded via _jwt)
 
-        // 6. Generate API token synchronously so the raw token is available for the App Service env var.
-        //    RenderAndStoreTokenAsync generates a raw token, stores the hash in api_tokens,
-        //    and returns the rendered CLAUDE-local.md content (we discard the markdown here).
-        // Raw tokens are never stored (only hashes) — PlatformApi__Token is set via
-        // the raw token returned from RenderAndStoreTokenAsync below.
-        var claudeMd = await claudeConfig.RenderAndStoreTokenAsync(project, userId, userEmail, hubBaseUrl);
-
-        // Extract the raw token embedded in the rendered CLAUDE-local.md content.
-        // The token line format is: PlatformApi__Token=<rawToken>
-        string? platformApiToken = null;
-        var tokenMatch = Regex.Match(claudeMd, @"PlatformApi__Token=([^\s\r\n]+)");
-        if (tokenMatch.Success)
-            platformApiToken = tokenMatch.Groups[1].Value;
+        // 6. Generate API token and rendered CLAUDE-local.md.
+        //    RenderAndStoreTokenAsync stores the token hash in api_tokens and returns
+        //    both the raw token and the rendered markdown. We use the raw token directly
+        //    for PlatformApi__Token — no regex parsing needed.
+        var (platformApiToken, _) = await claudeConfig.RenderAndStoreTokenAsync(project, userId, userEmail, hubBaseUrl);
 
         logger.LogInformation(
             "CLAUDE-local.md rendered for project {ProjectId}; token captured: {HasToken}",

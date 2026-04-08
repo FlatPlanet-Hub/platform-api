@@ -132,7 +132,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         };
     }
 
-    public async Task<string> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
+    public async Task<(string RawToken, string RenderedMarkdown)> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl)
     {
         var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
         var roleEntry = appAccess.FirstOrDefault(r => r.AppId == project.AppId);
@@ -158,7 +158,8 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             CreatedAt   = DateTime.UtcNow
         });
 
-        return RenderTemplate(project, rawToken, expiresAt, baseUrl);
+        var renderedMarkdown = RenderTemplate(project, rawToken, expiresAt, baseUrl);
+        return (rawToken, renderedMarkdown);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

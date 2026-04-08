@@ -41,14 +41,6 @@ public sealed class ApiTokenRepository(IDbConnectionFactory connectionFactory) :
             new { UserId = userId });
     }
 
-    public async Task<IEnumerable<ApiToken>> GetActiveByAppIdAsync(Guid appId)
-    {
-        using var conn = connectionFactory.CreateConnection();
-        return await conn.QueryAsync<ApiToken>(
-            "SELECT * FROM platform.api_tokens WHERE app_id = @AppId AND revoked = false AND expires_at > now() ORDER BY created_at DESC",
-            new { AppId = appId });
-    }
-
     public async Task RevokeAsync(Guid id, string? reason = null)
     {
         using var conn = connectionFactory.CreateConnection();
