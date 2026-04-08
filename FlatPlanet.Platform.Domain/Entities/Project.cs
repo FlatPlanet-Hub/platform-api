@@ -16,6 +16,8 @@ public sealed class Project
     public string? TechStack { get; set; }
     public string ProjectType { get; set; } = "fullstack";
     public bool   AuthEnabled { get; set; } = false;
+    public string? AzureAppServiceName { get; set; }
+    public string? AzureAppServiceUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }

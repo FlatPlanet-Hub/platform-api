@@ -24,6 +24,7 @@ public static class InfrastructureExtensions
         services.Configure<EncryptionSettings>(opts => configuration.GetSection("Encryption").Bind(opts));
         services.Configure<SecurityPlatformSettings>(opts =>
             configuration.GetSection("SecurityPlatform").Bind(opts));
+        services.Configure<AzureSettings>(opts => configuration.GetSection("Azure").Bind(opts));
 
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
