@@ -1,8 +1,10 @@
 using System.Text;
+using FlatPlanet.Platform.Application.Common.Helpers;
+using FlatPlanet.Platform.Application.Common.Options;
 using FlatPlanet.Platform.Application.DTOs.Auth;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
-using FlatPlanet.Platform.Application.Common.Helpers;
+using Microsoft.Extensions.Options;
 
 namespace FlatPlanet.Platform.Application.Services;
 
@@ -13,19 +15,22 @@ public sealed class ClaudeConfigService : IClaudeConfigService
     private readonly IJwtService _jwtService;
     private readonly IAuditService _audit;
     private readonly ISecurityPlatformService _securityPlatform;
+    private readonly GitHubOptions _github;
 
     public ClaudeConfigService(
         IProjectRepository projectRepo,
         IApiTokenRepository apiTokenRepo,
         IJwtService jwtService,
         IAuditService audit,
-        ISecurityPlatformService securityPlatform)
+        ISecurityPlatformService securityPlatform,
+        IOptions<GitHubOptions> github)
     {
         _projectRepo = projectRepo;
         _apiTokenRepo = apiTokenRepo;
         _jwtService = jwtService;
         _audit = audit;
         _securityPlatform = securityPlatform;
+        _github = github.Value;
     }
 
     public async Task<ClaudeConfigResponse> GenerateAsync(Guid userId, Guid projectId, string baseUrl, string userName, string userEmail)
@@ -57,7 +62,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
         return new ClaudeConfigResponse
         {
-            Content = RenderTemplate(project, rawToken, expiresAt, baseUrl),
+            Content = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github),
             TokenId = stored.Id,
             ExpiresAt = expiresAt
         };
@@ -158,7 +163,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             CreatedAt   = DateTime.UtcNow
         });
 
-        var renderedMarkdown = RenderTemplate(project, rawToken, expiresAt, baseUrl);
+        var renderedMarkdown = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github);
         return (rawToken, renderedMarkdown);
     }
 
@@ -273,7 +278,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         return sb.ToString();
     }
 
-    private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl)
+    private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
         var pid = project.Id;
         var api = $"{baseUrl}/api/projects/{pid}";
@@ -457,6 +462,16 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("7. If the token has expired, ask the user to regenerate CLAUDE-local.md from the FlatPlanet Hub");
         sb.AppendLine();
         sb.AppendLine("## Git Workflow");
+        sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(project.GitHubRepoName) && !string.IsNullOrWhiteSpace(github.ServiceToken) && !string.IsNullOrWhiteSpace(github.OrgName))
+        {
+            sb.AppendLine("### Clone the repo (no GitHub account needed)");
+            sb.AppendLine($"git clone https://{github.ServiceToken}@github.com/{github.OrgName}/{project.GitHubRepoName}.git");
+            sb.AppendLine();
+            sb.AppendLine("This uses the platform service token — you do not need a personal GitHub account.");
+            sb.AppendLine("Never share or commit this URL as it contains a live token.");
+            sb.AppendLine();
+        }
         sb.AppendLine("1. Work on a feature branch: git checkout -b feature/{feature-name}");
         sb.AppendLine("2. Build and test locally before committing");
         sb.AppendLine("3. Commit with descriptive messages: feat:, fix:, refactor:, docs:");

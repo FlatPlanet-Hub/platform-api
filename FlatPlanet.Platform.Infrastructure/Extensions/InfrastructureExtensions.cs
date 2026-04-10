@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using FlatPlanet.Platform.Application.Common.Options;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Application.Services;
 using FlatPlanet.Platform.Infrastructure.Azure;
@@ -23,6 +24,7 @@ public static class InfrastructureExtensions
         services.Configure<JwtSettings>(opts => configuration.GetSection("Jwt").Bind(opts));
         services.Configure<SupabaseSettings>(opts => configuration.GetSection("Supabase").Bind(opts));
         services.Configure<GitHubSettings>(opts => configuration.GetSection("GitHub").Bind(opts));
+        services.Configure<GitHubOptions>(opts => configuration.GetSection("GitHub").Bind(opts));
         services.Configure<EncryptionSettings>(opts => configuration.GetSection("Encryption").Bind(opts));
         services.Configure<SecurityPlatformSettings>(opts =>
             configuration.GetSection("SecurityPlatform").Bind(opts));
