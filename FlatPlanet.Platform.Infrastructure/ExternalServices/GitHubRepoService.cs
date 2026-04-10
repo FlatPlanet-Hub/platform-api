@@ -79,6 +79,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var client = GetServiceClient();
         var (owner, repoName) = ParseRepo(project.GitHubRepo);
 
+        // .gitignore
         try
         {
             await client.Repository.Content.GetAllContents(owner, repoName, ".gitignore");
@@ -87,6 +88,19 @@ public sealed class GitHubRepoService : IGitHubRepoService
         {
             await client.Repository.Content.CreateFile(owner, repoName, ".gitignore",
                 new CreateFileRequest("chore: seed .gitignore", BuildGitignore(), "main"));
+        }
+
+        // GitHub Actions CI/CD workflow
+        const string workflowPath = ".github/workflows/ci.yml";
+        try
+        {
+            await client.Repository.Content.GetAllContents(owner, repoName, workflowPath);
+        }
+        catch (NotFoundException)
+        {
+            var workflow = BuildWorkflow(project);
+            await client.Repository.Content.CreateFile(owner, repoName, workflowPath,
+                new CreateFileRequest("ci: add GitHub Actions workflow", workflow, "main"));
         }
     }
 
@@ -168,6 +182,152 @@ public sealed class GitHubRepoService : IGitHubRepoService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private static string BuildWorkflow(DomainProject project)
+    {
+        var type = project.ProjectType.ToLowerInvariant();
+        return type switch
+        {
+            "frontend" => BuildFrontendWorkflow(),
+            "backend"  => BuildBackendWorkflow(project.AppSlug ?? project.SchemaName),
+            _          => BuildFullstackWorkflow(project.AppSlug ?? project.SchemaName) // fullstack + database
+        };
+    }
+
+    private static string BuildFrontendWorkflow() => """
+        name: CI
+
+        on:
+          push:
+            branches: [ main ]
+          pull_request:
+            branches: [ main ]
+
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup Node.js
+                uses: actions/setup-node@v4
+                with:
+                  node-version: '20'
+                  cache: 'npm'
+
+              - name: Install dependencies
+                run: npm ci
+
+              - name: Build
+                run: npm run build
+
+              - name: Test
+                run: npm test --if-present
+        """;
+
+    private static string BuildBackendWorkflow(string appSlug) => """
+        name: Build, Test & Deploy
+
+        on:
+          push:
+            branches: [ main ]
+          pull_request:
+            branches: [ main ]
+
+        jobs:
+          build-test-deploy:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup .NET
+                uses: actions/setup-dotnet@v4
+                with:
+                  dotnet-version: '10.0.x'
+
+              - name: Restore
+                run: dotnet restore
+
+              - name: Build
+                run: dotnet build --configuration Release --no-restore
+
+              - name: Test
+                run: dotnet test --configuration Release --no-build --no-restore
+
+              - name: Publish
+                if: github.ref == 'refs/heads/main'
+                run: dotnet publish --configuration Release --output ./publish
+
+              - name: Deploy to Azure App Service
+                if: github.ref == 'refs/heads/main'
+                uses: azure/webapps-deploy@v3
+                with:
+                  app-name: __APP_SLUG__
+                  publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+                  package: ./publish
+        """.Replace("__APP_SLUG__", appSlug);
+
+    private static string BuildFullstackWorkflow(string appSlug) => """
+        name: Build, Test & Deploy
+
+        on:
+          push:
+            branches: [ main ]
+          pull_request:
+            branches: [ main ]
+
+        jobs:
+          frontend:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup Node.js
+                uses: actions/setup-node@v4
+                with:
+                  node-version: '20'
+                  cache: 'npm'
+
+              - name: Install dependencies
+                run: npm ci --if-present
+
+              - name: Build frontend
+                run: npm run build --if-present
+
+              - name: Test frontend
+                run: npm test --if-present
+
+          backend:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup .NET
+                uses: actions/setup-dotnet@v4
+                with:
+                  dotnet-version: '10.0.x'
+
+              - name: Restore
+                run: dotnet restore --ignore-failed-sources
+
+              - name: Build
+                run: dotnet build --configuration Release --no-restore
+
+              - name: Test
+                run: dotnet test --configuration Release --no-build --no-restore
+
+              - name: Publish
+                if: github.ref == 'refs/heads/main'
+                run: dotnet publish --configuration Release --output ./publish
+
+              - name: Deploy to Azure App Service
+                if: github.ref == 'refs/heads/main'
+                uses: azure/webapps-deploy@v3
+                with:
+                  app-name: __APP_SLUG__
+                  publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+                  package: ./publish
+        """.Replace("__APP_SLUG__", appSlug);
 
     private static string BuildGitignore() => """
         # Dependencies
