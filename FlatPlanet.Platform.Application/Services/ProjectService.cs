@@ -191,8 +191,17 @@ public sealed class ProjectService : IProjectService
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
         {
-            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "delete_project");
-            if (!allowed) throw new UnauthorizedAccessException("You do not have permission to deactivate this project.");
+            var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+            var isPlatformOwner = appAccess.Any(a =>
+                a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+                (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+                 a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+
+            if (!isPlatformOwner)
+            {
+                var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "delete_project");
+                if (!allowed) throw new UnauthorizedAccessException("You do not have permission to deactivate this project.");
+            }
         }
 
         project.IsActive = false;
