@@ -41,7 +41,8 @@ public sealed class ProvisionAzureService(
 
         var canViewAll = appAccess.Any(a =>
             a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
-            a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase));
+            (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+             a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
 
         if (!canViewAll)
         {
