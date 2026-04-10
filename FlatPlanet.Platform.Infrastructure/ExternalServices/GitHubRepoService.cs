@@ -1,6 +1,9 @@
+using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Octokit;
+using Sodium;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using DomainProject = FlatPlanet.Platform.Domain.Entities.Project;
@@ -179,6 +182,41 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var client = GetServiceClient();
         var (owner, repoName) = ParseRepo(repo);
         await client.Repository.Collaborator.Delete(owner, repoName, githubUsername);
+    }
+
+    public async Task SetRepoSecretAsync(string repo, string secretName, string secretValue)
+    {
+        var (owner, repoName) = ParseRepo(repo);
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("User-Agent", "FlatPlanetHub");
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ServiceToken}");
+        http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+
+        // 1. Get repo public key
+        var keyResponse = await http.GetFromJsonAsync<GitHubPublicKey>(
+            $"https://api.github.com/repos/{owner}/{repoName}/actions/secrets/public-key");
+
+        if (keyResponse is null) throw new InvalidOperationException("Could not retrieve GitHub repo public key.");
+
+        // 2. Encrypt secret using libsodium sealed box (crypto_box_seal)
+        var publicKeyBytes = Convert.FromBase64String(keyResponse.Key);
+        var secretBytes = Encoding.UTF8.GetBytes(secretValue);
+        var encryptedBytes = SealedPublicKeyBox.Create(secretBytes, publicKeyBytes);
+        var encryptedBase64 = Convert.ToBase64String(encryptedBytes);
+
+        // 3. Push secret to GitHub
+        var body = new { encrypted_value = encryptedBase64, key_id = keyResponse.KeyId };
+        var putResponse = await http.PutAsJsonAsync(
+            $"https://api.github.com/repos/{owner}/{repoName}/actions/secrets/{secretName}", body);
+
+        putResponse.EnsureSuccessStatusCode();
+    }
+
+    private sealed class GitHubPublicKey
+    {
+        [JsonPropertyName("key_id")] public string KeyId { get; init; } = string.Empty;
+        [JsonPropertyName("key")]    public string Key    { get; init; } = string.Empty;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

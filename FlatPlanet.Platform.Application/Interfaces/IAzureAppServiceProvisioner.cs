@@ -13,7 +13,7 @@ public interface IAzureAppServiceProvisioner
     /// Throws InvalidOperationException if name is already taken in Azure (maps to 409).
     /// Throws Exception with Azure error message for all other ARM failures (maps to 500).
     /// </summary>
-    Task<(string AppServiceName, string AppServiceUrl)> ProvisionAsync(
+    Task<(string AppServiceName, string AppServiceUrl, string PublishProfileXml)> ProvisionAsync(
         string appServiceName,
         AppServiceEnvVars envVars);
 }

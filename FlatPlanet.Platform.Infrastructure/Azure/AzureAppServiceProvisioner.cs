@@ -18,7 +18,7 @@ public sealed class AzureAppServiceProvisioner(
     private readonly AzureSettings _azure = azureOptions.Value;
     private readonly SupabaseSettings _supabase = supabaseOptions.Value;
 
-    public async Task<(string AppServiceName, string AppServiceUrl)> ProvisionAsync(
+    public async Task<(string AppServiceName, string AppServiceUrl, string PublishProfileXml)> ProvisionAsync(
         string appServiceName,
         AppServiceEnvVars envVars)
     {
@@ -93,7 +93,21 @@ public sealed class AzureAppServiceProvisioner(
         var url = $"https://{appServiceName}.azurewebsites.net";
         logger.LogInformation("Provisioned Azure App Service '{AppServiceName}' at {Url}", appServiceName, url);
 
-        return (appServiceName, url);
+        // Fetch publish profile XML for GitHub Actions secret
+        string publishProfileXml;
+        try
+        {
+            var profileResponse = await site.GetPublishingProfileXmlWithSecretsAsync(new CsmPublishingProfile());
+            using var reader = new System.IO.StreamReader(profileResponse.Value);
+            publishProfileXml = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}' — CI/CD secret will not be set", appServiceName);
+            publishProfileXml = string.Empty;
+        }
+
+        return (appServiceName, url, publishProfileXml);
     }
 
     private string BuildConnectionString(string schemaName) =>

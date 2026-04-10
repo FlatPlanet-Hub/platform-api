@@ -12,6 +12,7 @@ public sealed class ProvisionAzureService(
     IAzureAppServiceProvisioner provisioner,
     IClaudeConfigService claudeConfig,
     ISecurityPlatformService securityPlatform,
+    IGitHubRepoService gitHubRepo,
     IOptions<JwtSettings> jwtOptions,
     ILogger<ProvisionAzureService> logger) : IProvisionAzureService
 {
@@ -90,7 +91,15 @@ public sealed class ProvisionAzureService(
         project.UpdatedAt           = DateTime.UtcNow;
         await projectRepo.UpdateAsync(project);
 
-        // 11. Return result — surface the raw token so the caller can relay it to the user
+        // 11. Push publish profile as GitHub Actions secret (fire-and-forget — non-blocking)
+        if (!string.IsNullOrWhiteSpace(result.PublishProfileXml) && !string.IsNullOrWhiteSpace(project.GitHubRepo))
+        {
+            _ = gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", result.PublishProfileXml)
+                .ContinueWith(t => logger.LogWarning(t.Exception, "Failed to set AZURE_WEBAPP_PUBLISH_PROFILE secret"),
+                    System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        // 12. Return result — surface the raw token so the caller can relay it to the user
         return new ProvisionAzureResponse(result.AppServiceName, result.AppServiceUrl, envVars.PlatformApiToken);
     }
 
