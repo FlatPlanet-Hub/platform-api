@@ -184,6 +184,26 @@ public sealed class GitHubRepoService : IGitHubRepoService
         await client.Repository.Collaborator.Delete(owner, repoName, githubUsername);
     }
 
+    public async Task UpdateWorkflowAsync(string repo, string workflowContent)
+    {
+        var client = GetServiceClient();
+        var (owner, repoName) = ParseRepo(repo);
+        const string path = ".github/workflows/ci.yml";
+
+        try
+        {
+            var existing = await client.Repository.Content.GetAllContents(owner, repoName, path);
+            var sha = existing.FirstOrDefault()?.Sha;
+            await client.Repository.Content.UpdateFile(owner, repoName, path,
+                new UpdateFileRequest("ci: enable Azure deployment on App Service provision", workflowContent, sha, "main"));
+        }
+        catch (NotFoundException)
+        {
+            await client.Repository.Content.CreateFile(owner, repoName, path,
+                new CreateFileRequest("ci: add CI/CD workflow", workflowContent, "main"));
+        }
+    }
+
     public async Task SetRepoSecretAsync(string repo, string secretName, string secretValue)
     {
         var (owner, repoName) = ParseRepo(repo);
@@ -226,13 +246,14 @@ public sealed class GitHubRepoService : IGitHubRepoService
         var type = project.ProjectType.ToLowerInvariant();
         return type switch
         {
-            "frontend" => BuildFrontendWorkflow(),
-            "backend"  => BuildBackendWorkflow(project.AppSlug ?? project.SchemaName),
-            _          => BuildFullstackWorkflow(project.AppSlug ?? project.SchemaName) // fullstack + database
+            "frontend" => BuildFrontendCiWorkflow(),
+            "backend"  => BuildBackendCiWorkflow(),
+            _          => BuildFullstackCiWorkflow()   // fullstack + database
         };
     }
 
-    private static string BuildFrontendWorkflow() => """
+    // CI-only workflows — seeded at project creation (no deploy step)
+    private static string BuildFrontendCiWorkflow() => """
         name: CI
 
         on:
@@ -263,8 +284,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
                 run: npm test --if-present
         """;
 
-    private static string BuildBackendWorkflow(string appSlug) => """
-        name: Build, Test & Deploy
+    private static string BuildBackendCiWorkflow() => """
+        name: CI
 
         on:
           push:
@@ -273,7 +294,88 @@ public sealed class GitHubRepoService : IGitHubRepoService
             branches: [ main ]
 
         jobs:
-          build-test-deploy:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup .NET
+                uses: actions/setup-dotnet@v4
+                with:
+                  dotnet-version: '10.0.x'
+
+              - name: Restore
+                run: dotnet restore
+
+              - name: Build
+                run: dotnet build --configuration Release --no-restore
+
+              - name: Test
+                run: dotnet test --configuration Release --no-build --no-restore
+        """;
+
+    private static string BuildFullstackCiWorkflow() => """
+        name: CI
+
+        on:
+          push:
+            branches: [ main ]
+          pull_request:
+            branches: [ main ]
+
+        jobs:
+          frontend:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup Node.js
+                uses: actions/setup-node@v4
+                with:
+                  node-version: '20'
+                  cache: 'npm'
+
+              - name: Install dependencies
+                run: npm ci --if-present
+
+              - name: Build frontend
+                run: npm run build --if-present
+
+              - name: Test frontend
+                run: npm test --if-present
+
+          backend:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+
+              - name: Setup .NET
+                uses: actions/setup-dotnet@v4
+                with:
+                  dotnet-version: '10.0.x'
+
+              - name: Restore
+                run: dotnet restore --ignore-failed-sources
+
+              - name: Build
+                run: dotnet build --configuration Release --no-restore
+
+              - name: Test
+                run: dotnet test --configuration Release --no-build --no-restore
+        """;
+
+    // CD workflows — pushed when Azure App Service is provisioned
+    public static string BuildBackendCdWorkflow(string appServiceName) => """
+        name: CI / CD
+
+        on:
+          push:
+            branches: [ main ]
+          pull_request:
+            branches: [ main ]
+
+        jobs:
+          build:
             runs-on: ubuntu-latest
             steps:
               - uses: actions/checkout@v4
@@ -300,13 +402,13 @@ public sealed class GitHubRepoService : IGitHubRepoService
                 if: github.ref == 'refs/heads/main'
                 uses: azure/webapps-deploy@v3
                 with:
-                  app-name: __APP_SLUG__
+                  app-name: __APP_SERVICE_NAME__
                   publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
                   package: ./publish
-        """.Replace("__APP_SLUG__", appSlug);
+        """.Replace("__APP_SERVICE_NAME__", appServiceName);
 
-    private static string BuildFullstackWorkflow(string appSlug) => """
-        name: Build, Test & Deploy
+    public static string BuildFullstackCdWorkflow(string appServiceName) => """
+        name: CI / CD
 
         on:
           push:
@@ -362,10 +464,10 @@ public sealed class GitHubRepoService : IGitHubRepoService
                 if: github.ref == 'refs/heads/main'
                 uses: azure/webapps-deploy@v3
                 with:
-                  app-name: __APP_SLUG__
+                  app-name: __APP_SERVICE_NAME__
                   publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
                   package: ./publish
-        """.Replace("__APP_SLUG__", appSlug);
+        """.Replace("__APP_SERVICE_NAME__", appServiceName);
 
     private static string BuildGitignore() => """
         # Dependencies

@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using FlatPlanet.Platform.Application.DTOs.Azure;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Infrastructure.Configuration;
+using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -91,12 +92,20 @@ public sealed class ProvisionAzureService(
         project.UpdatedAt           = DateTime.UtcNow;
         await projectRepo.UpdateAsync(project);
 
-        // 11. Push publish profile as GitHub Actions secret (fire-and-forget — non-blocking)
+        // 11. Push publish profile secret + upgrade workflow to CI/CD (fire-and-forget)
         if (!string.IsNullOrWhiteSpace(result.PublishProfileXml) && !string.IsNullOrWhiteSpace(project.GitHubRepo))
         {
-            _ = gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", result.PublishProfileXml)
-                .ContinueWith(t => logger.LogWarning(t.Exception, "Failed to set AZURE_WEBAPP_PUBLISH_PROFILE secret"),
-                    System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+            var cdWorkflow = project.ProjectType.ToLowerInvariant() switch
+            {
+                "backend" => GitHubRepoService.BuildBackendCdWorkflow(result.AppServiceName),
+                _         => GitHubRepoService.BuildFullstackCdWorkflow(result.AppServiceName)
+            };
+
+            _ = Task.WhenAll(
+                gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", result.PublishProfileXml),
+                gitHubRepo.UpdateWorkflowAsync(project.GitHubRepo, cdWorkflow)
+            ).ContinueWith(t => logger.LogWarning(t.Exception, "Failed to configure GitHub Actions for Azure deployment"),
+                System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
         // 12. Return result — surface the raw token so the caller can relay it to the user

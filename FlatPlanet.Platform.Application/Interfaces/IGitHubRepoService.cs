@@ -19,4 +19,5 @@ public interface IGitHubRepoService
     Task InviteCollaboratorAsync(string repo, string githubUsername, string permission);
     Task RemoveCollaboratorAsync(string repo, string githubUsername);
     Task SetRepoSecretAsync(string repo, string secretName, string secretValue);
+    Task UpdateWorkflowAsync(string repo, string workflowContent);
 }
