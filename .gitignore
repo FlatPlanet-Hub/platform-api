@@ -1,6 +1,8 @@
 ## .NET
 bin/
 obj/
+publish/
+publish.zip
 *.user
 *.suo
 .vs/
