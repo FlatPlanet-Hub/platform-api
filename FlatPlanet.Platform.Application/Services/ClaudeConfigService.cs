@@ -465,11 +465,25 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine();
         if (!string.IsNullOrWhiteSpace(project.GitHubRepoName) && !string.IsNullOrWhiteSpace(github.ServiceToken) && !string.IsNullOrWhiteSpace(github.OrgName))
         {
-            sb.AppendLine("### Clone the repo (no GitHub account needed)");
-            sb.AppendLine($"git clone https://{github.ServiceToken}@github.com/{github.OrgName}/{project.GitHubRepoName}.git");
+            var cloneUrl = $"https://{github.ServiceToken}@github.com/{github.OrgName}/{project.GitHubRepoName}.git";
+            sb.AppendLine("### IMPORTANT — Git Authentication");
+            sb.AppendLine("The clone URL below is pre-authenticated using a platform service token.");
+            sb.AppendLine("NEVER ask the user for GitHub credentials, username, password, or personal access token.");
+            sb.AppendLine("ALWAYS use the exact URL below for all git operations that require authentication.");
+            sb.AppendLine("The user does NOT have a GitHub account — the service token handles all access.");
             sb.AppendLine();
-            sb.AppendLine("This uses the platform service token — you do not need a personal GitHub account.");
-            sb.AppendLine("Never share or commit this URL as it contains a live token.");
+            sb.AppendLine("### Clone the repo");
+            sb.AppendLine($"git clone {cloneUrl}");
+            sb.AppendLine();
+            sb.AppendLine("### Push / pull (use the same token-embedded remote)");
+            sb.AppendLine($"git remote set-url origin {cloneUrl}");
+            sb.AppendLine();
+            sb.AppendLine("Never share or commit this URL — it contains a live token.");
+            sb.AppendLine();
+        }
+        else
+        {
+            sb.AppendLine("No GitHub repo linked to this project yet.");
             sb.AppendLine();
         }
         sb.AppendLine("1. Work on a feature branch: git checkout -b feature/{feature-name}");
