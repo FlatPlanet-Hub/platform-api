@@ -7,6 +7,7 @@ using FlatPlanet.Platform.Infrastructure.Azure;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using FlatPlanet.Platform.Infrastructure.Repositories;
+using FlatPlanet.Platform.Infrastructure.Storage;
 
 namespace FlatPlanet.Platform.Infrastructure.Extensions;
 
@@ -26,6 +27,7 @@ public static class InfrastructureExtensions
         services.Configure<SecurityPlatformSettings>(opts =>
             configuration.GetSection("SecurityPlatform").Bind(opts));
         services.Configure<AzureSettings>(opts => configuration.GetSection("Azure").Bind(opts));
+        services.Configure<StorageSettings>(opts => configuration.GetSection("Storage").Bind(opts));
 
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
@@ -69,6 +71,10 @@ public static class InfrastructureExtensions
         // Azure provisioning
         services.AddScoped<IAzureAppServiceProvisioner, AzureAppServiceProvisioner>();
         services.AddScoped<IProvisionAzureService, ProvisionAzureService>();
+
+        // File storage
+        services.AddScoped<IFileRepository, FileRepository>();
+        services.AddScoped<IFileStorageService, AzureBlobStorageService>();
 
         return services;
     }
