@@ -1,11 +1,19 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
 
 ---
+
+## What's New in v1.1.0
+
+| Change | Details |
+|---|---|
+| File Storage API | 4 new endpoints under `/api/v1/storage` — upload, list, get SAS URL, soft-delete |
+| Azure Blob Storage | Files stored in `flatplanetassets` / `flatplanet-assets` / `{businessCode}/{category}/{fileId}.{ext}` |
+| SAS URLs | Time-limited (60 min), generated via Managed Identity user delegation key |
 
 ## What's New in v1.0.0
 
@@ -56,8 +64,13 @@
 10. [DB Proxy — Queries](#db-proxy--queries)
     - [Read Query](#read-query)
     - [Write Query](#write-query)
-11. [Standard Response Envelope](#standard-response-envelope)
-12. [Error Reference](#error-reference)
+11. [File Storage](#file-storage)
+    - [Upload File](#upload-file)
+    - [List Files](#list-files)
+    - [Get File URL](#get-file-url)
+    - [Delete File](#delete-file)
+12. [Standard Response Envelope](#standard-response-envelope)
+13. [Error Reference](#error-reference)
 
 ---
 
@@ -1548,6 +1561,172 @@ Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project sch
 - Write operations **are** audit logged.
 - No transaction wrapping — each request is a single statement.
 - DDL is blocked (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`). Use the Migration endpoints for schema changes.
+
+---
+
+## File Storage
+
+Centralized file storage using Azure Blob Storage. Files are scoped per business code and category.
+
+**Auth required**: Yes — Security Platform JWT (user must have a valid `business_codes` claim matching the requested `businessCode`).
+
+**Storage layout**: `flatplanetassets` (account) / `flatplanet-assets` (container) / `{businessCode}/{category}/{fileId}.{ext}`
+
+---
+
+### Upload File
+
+**`POST /api/v1/storage/upload`**
+
+Uploads a file to Azure Blob Storage. Request must be `multipart/form-data`. Maximum file size is **50 MB**.
+
+#### Request — multipart/form-data
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `file` | binary | Yes | The file to upload. |
+| `businessCode` | string | Yes | Short company code (e.g. `"fp"`). Must match a code in the caller's `business_codes` JWT claim. |
+| `category` | string | No | Logical grouping for the file (e.g. `"logos"`, `"documents"`). Defaults to `"general"`. |
+| `tags` | string | No | Comma-separated tag list (e.g. `"logo,primary"`). |
+
+#### Success Response — 200
+
+```json
+{
+  "fileId": "7ea2a19e-...",
+  "businessCode": "fp",
+  "category": "general",
+  "originalName": "logo.png",
+  "contentType": "image/png",
+  "fileSizeBytes": 48210,
+  "tags": ["logo", "primary"],
+  "sasUrl": "https://flatplanetassets.blob.core.windows.net/...",
+  "sasExpiresAt": "2026-04-10T02:13:27Z",
+  "createdAt": "2026-04-10T01:13:25Z"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `fileId` | UUID | Unique identifier for the file. Use this in subsequent URL / delete calls. |
+| `businessCode` | string | Business code the file is scoped to. |
+| `category` | string | Category the file was stored under. |
+| `originalName` | string | Original filename from the upload. |
+| `contentType` | string | MIME type detected from the upload. |
+| `fileSizeBytes` | integer | File size in bytes. |
+| `tags` | string[] | Tags parsed from the comma-separated upload field. |
+| `sasUrl` | string | Time-limited Azure Blob SAS URL. Valid for 60 minutes from upload. |
+| `sasExpiresAt` | string | ISO 8601 expiry timestamp for the SAS URL. |
+| `createdAt` | string | ISO 8601 timestamp of upload. |
+
+#### Error Responses
+
+| HTTP | Message | Cause |
+|---|---|---|
+| `400` | — | Missing `file` or `businessCode` field; file exceeds 50 MB limit. |
+| `403` | — | Caller's JWT `business_codes` claim does not include the requested `businessCode`. |
+
+---
+
+### List Files
+
+**`GET /api/v1/storage/files`**
+
+Returns files accessible to the caller, with optional filters.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `businessCode` | string | No | Filter by business code (e.g. `fp`). |
+| `category` | string | No | Filter by category (e.g. `logos`). |
+| `tags` | string | No | Comma-separated tag filter — returns files that have **all** specified tags. |
+
+#### Example Request
+
+```
+GET /api/v1/storage/files?businessCode=fp&category=logos&tags=test
+```
+
+#### Success Response — 200
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "fileId": "7ea2a19e-...",
+      "businessCode": "fp",
+      "category": "logos",
+      "originalName": "logo.png",
+      "contentType": "image/png",
+      "fileSizeBytes": 48210,
+      "tags": ["logo", "primary"],
+      "createdAt": "2026-04-10T01:13:25Z"
+    }
+  ]
+}
+```
+
+#### Notes
+
+- Results are filtered to files belonging to `businessCode` values in the caller's JWT `business_codes` claim.
+- Soft-deleted files are excluded.
+
+---
+
+### Get File URL
+
+**`GET /api/v1/storage/files/{fileId}/url`**
+
+Generates a fresh SAS URL for an existing file. The previous URL (from upload or a prior call) does not need to be revoked — SAS URLs are stateless.
+
+#### Success Response — 200
+
+```json
+{
+  "sasUrl": "https://flatplanetassets.blob.core.windows.net/...",
+  "expiresAt": "2026-04-10T02:30:30Z"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `sasUrl` | string | New time-limited SAS URL. Valid for 60 minutes. |
+| `expiresAt` | string | ISO 8601 expiry timestamp. |
+
+#### Error Responses
+
+| HTTP | Message | Cause |
+|---|---|---|
+| `403` | — | File belongs to a `businessCode` not in the caller's JWT claim. |
+| `404` | — | No file with that ID, or the file has been soft-deleted. |
+
+#### Notes
+
+- SAS URLs are generated using Managed Identity user delegation keys. No storage account key is stored in the application.
+- Call this endpoint to refresh a URL before it expires (60-minute window).
+
+---
+
+### Delete File
+
+**`DELETE /api/v1/storage/files/{fileId}`**
+
+Soft-deletes a file. The database record is marked deleted; the blob in Azure is no longer accessible through the API. The blob itself may be retained in storage for a configurable retention period.
+
+#### Success Response — 200
+
+```json
+{ "success": true, "message": "File deleted." }
+```
+
+#### Error Responses
+
+| HTTP | Message | Cause |
+|---|---|---|
+| `403` | — | File belongs to a `businessCode` not in the caller's JWT claim. |
+| `404` | — | No file with that ID, or already deleted. |
 
 ---
 

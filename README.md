@@ -138,6 +138,15 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | `DELETE` | `/api/projects/{id}/claude-config` | Revoke token |
 | `GET` | `/api/projects/{id}/claude-config/workspace` | Generate CLAUDE-local.md (local only, git-ignored) + smart token management |
 
+### File Storage
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/v1/storage/upload` | Upload a file (multipart, 50 MB max) |
+| `GET` | `/api/v1/storage/files` | List files (filter by businessCode, category, tags) |
+| `GET` | `/api/v1/storage/files/{fileId}/url` | Get a fresh SAS URL (60 min) |
+| `DELETE` | `/api/v1/storage/files/{fileId}` | Soft-delete a file |
+
 ### DB Proxy — requires API Token
 
 | Method | Endpoint | Permission | Description |
@@ -152,6 +161,36 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | `DELETE` | `/api/projects/{id}/migration/drop-table` | `ddl` | Drop table |
 | `POST` | `/api/projects/{id}/query/read` | `read` | Execute SELECT |
 | `POST` | `/api/projects/{id}/query/write` | `write` | Execute INSERT / UPDATE / DELETE |
+
+---
+
+## File Storage
+
+Centralized file storage is provided via Azure Blob Storage. All FlatPlanet applications share a single storage account (`flatplanetassets`), with files scoped by business code and category.
+
+### Storage Layout
+
+```
+flatplanetassets (storage account)
+  flatplanet-assets (container)
+    {businessCode}/
+      {category}/
+        {fileId}.{ext}
+```
+
+### SAS URLs
+
+File access is served via time-limited SAS URLs (60-minute lifetime). URLs are generated using a Managed Identity user delegation key — no storage account key is stored in the application.
+
+### Configuration
+
+Add the following to App Service environment variables:
+
+```
+Storage__AccountName = flatplanetassets
+```
+
+The API uses Managed Identity; no connection string or access key is required.
 
 ---
 

@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.1.0] — 2026-04-10
+
+### Added — FEAT-HUB-STORAGE-01: Centralized File Storage via Azure Blob
+
+- **`POST /api/v1/storage/upload`** — multipart/form-data upload endpoint. Accepts `file` (binary), `businessCode` (string), `category` (string, optional, default `"general"`), and `tags` (comma-separated string, optional). Files are stored in Azure Blob Storage under `flatplanet-assets/{businessCode}/{category}/{fileId}.{ext}`. Maximum file size: 50 MB. Returns a full file record including a time-limited SAS URL (60 min).
+- **`GET /api/v1/storage/files`** — list files for a business, with optional `businessCode`, `category`, and `tags` query filters.
+- **`GET /api/v1/storage/files/{fileId}/url`** — returns a fresh SAS URL (60-minute lifetime) for an existing file. Uses Managed Identity user delegation key — no storage account key required.
+- **`DELETE /api/v1/storage/files/{fileId}`** — soft-deletes a file record. The blob is marked deleted; the file is no longer served via URL endpoints.
+- **Azure Blob Storage integration** — storage account `flatplanetassets`, container `flatplanet-assets`. Path format: `{businessCode}/{category}/{fileId}.{ext}`. SAS URLs are generated via Managed Identity user delegation key (no storage account key required).
+- **`Storage__AccountName` environment variable** — required on App Service. Set to the Azure storage account name (e.g. `flatplanetassets`).
+
+---
+
 ## [1.0.1] — 2026-04-07
 
 ### Fixed
