@@ -1,11 +1,20 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
 
 ---
+
+## What's New in v1.2.0
+
+| Change | Details |
+|---|---|
+| `POST /api/projects/{id}/sync-github-actions` | New endpoint — re-syncs GitHub Actions CI/CD workflow and `AZURE_WEBAPP_PUBLISH_PROFILE` secret for provisioned projects where the initial GitHub setup failed silently |
+| GitHub directory fix | `EnsureGitHubDirectoryAsync` helper now pre-creates `.github/.gitkeep` before writing `.github/workflows/ci.yml` — GitHub API cannot create two directory levels simultaneously |
+| GitHub token scope | Service token now requires `workflow` scope (in addition to `repo`) to write to `.github/workflows/` |
+| Root cause surfaced | The fire-and-forget pattern in `ProvisionAsync` was silently swallowing GitHub setup failures; `sync-github-actions` is fully awaited and surfaces errors |
 
 ## What's New in v1.1.0
 
@@ -41,6 +50,7 @@
    - [Get Project](#get-project)
    - [Update Project](#update-project)
    - [Deactivate Project](#deactivate-project)
+   - [Sync GitHub Actions](#sync-github-actions)
 6. [Project Members](#project-members)
    - [List Members](#list-members)
    - [Add Member](#add-member)
@@ -646,6 +656,74 @@ Soft-deactivates a project. Sets `isActive = false`. Requires `delete_project` p
 - This is a soft delete only — `isActive` is set to `false`. Data is not removed.
 - Deactivated projects no longer appear in `GET /api/projects`.
 - Existing API tokens for this project remain valid until their natural expiry. Revoke them explicitly via `DELETE /api/projects/{id}/claude-config` first.
+
+---
+
+### Sync GitHub Actions
+
+### `POST /api/projects/{id}/sync-github-actions`
+
+Re-syncs the GitHub Actions CI/CD workflow file and the `AZURE_WEBAPP_PUBLISH_PROFILE` secret for an already-provisioned project. Use this when the initial project creation succeeded but the GitHub Actions setup failed silently (the original provisioning path was fire-and-forget and did not surface GitHub errors).
+
+**Auth required:** Security Platform JWT. The caller must have one of:
+- `write`, `manage_members`, or `owner` permission on the project app, **or**
+- `platform_owner` permission on the `dashboard-hub` app
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:** No body.
+
+---
+
+**Success Response `200`:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "appServiceName": "fp-acme-crm",
+    "repoFullName": "FlatPlanet-Hub/acme-crm",
+    "message": "GitHub Actions workflow and secret synced successfully."
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `appServiceName` | string | Azure App Service name the workflow deploys to |
+| `repoFullName` | string | `{org}/{repo}` of the linked GitHub repository |
+| `message` | string | Human-readable confirmation |
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `403` | Caller lacks the required permission |
+| `404` | Project not found |
+| `409` | Project has not been provisioned (no `AzureAppServiceName` set), or no GitHub repository is linked to the project |
+| `200` with `"success": false` | GitHub API call succeeded structurally but the sync operation itself failed — `error` field contains the GitHub error message |
+
+**Error Response (GitHub failure):**
+
+```json
+{
+  "success": false,
+  "error": "GitHub sync failed for repo 'FlatPlanet-Hub/acme-crm': Not Found"
+}
+```
+
+**Notes:**
+- This endpoint is fully awaited — errors from the GitHub API are surfaced immediately rather than being swallowed.
+- The endpoint creates `.github/workflows/ci.yml` (via a two-step helper that pre-creates `.github/.gitkeep` if the directory does not exist) and upserts the `AZURE_WEBAPP_PUBLISH_PROFILE` Actions secret.
+- The GitHub service token must have both `repo` and `workflow` scopes. Without `workflow` scope, writing to `.github/workflows/` will fail with a `403` from GitHub.
+- Calling this endpoint on a project whose GitHub setup is already correct is safe — the workflow file and secret are simply overwritten with the same values.
 
 ---
 

@@ -5,6 +5,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.2.0] — 2026-04-13
+
+### Added — FEAT-SYNC-GHA: Sync GitHub Actions on Demand
+
+- **`POST /api/projects/{id}/sync-github-actions`** — new endpoint that re-syncs the GitHub Actions CI/CD workflow (`ci.yml`) and the `AZURE_WEBAPP_PUBLISH_PROFILE` Actions secret for provisioned projects where the initial GitHub setup failed silently. Auth: Security Platform JWT with `write`, `manage_members`, or `owner` on the project, OR `platform_owner` on `dashboard-hub`. Returns `{ "success": true, "data": { "appServiceName": "...", "repoFullName": "...", "message": "..." } }` on success, or `{ "success": false, "error": "GitHub sync failed for repo '...': ..." }` on GitHub failure.
+
+### Fixed
+
+- **`EnsureGitHubDirectoryAsync` helper** — `UpdateWorkflowAsync` and `SeedProjectFilesAsync` previously failed to create `.github/workflows/ci.yml` when the `.github/` directory did not already exist. The GitHub Contents API cannot create two new directory levels in one call. Added `EnsureGitHubDirectoryAsync` which pre-creates `.github/.gitkeep` first, then writes the workflow file in a second call.
+- **GitHub service token `workflow` scope** — the service token now requires both `repo` and `workflow` scopes. Without `workflow` scope, any write to `.github/workflows/` was silently rejected by GitHub with a `403`.
+- **Silent GitHub failures in `ProvisionAsync`** — the original fire-and-forget pattern swallowed all GitHub errors during project provisioning. The new `sync-github-actions` endpoint is fully awaited and surfaces GitHub API errors directly in the response.
+- **`CLAUDE-local.md` deploy section** — the generated template now instructs `git push origin main` for deployment instead of `az webapp deploy` CLI commands, correctly reflecting that GitHub Actions handles deployment after provisioning.
+
+---
+
 ## [1.1.0] — 2026-04-10
 
 ### Added — FEAT-HUB-STORAGE-01: Centralized File Storage via Azure Blob

@@ -119,6 +119,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | `GET` | `/api/projects/{id}` | Get project |
 | `PUT` | `/api/projects/{id}` | Update project |
 | `DELETE` | `/api/projects/{id}` | Deactivate project |
+| `POST` | `/api/projects/{id}/sync-github-actions` | Re-sync GitHub Actions workflow and publish profile secret for projects where initial GitHub setup failed |
 
 ### Project Members
 
