@@ -47,13 +47,26 @@ public sealed class GitHubRepoService : IGitHubRepoService
     public async Task<(string RepoFullName, string RepoLink)> CreateRepoAsync(string repoName)
     {
         var client = GetServiceClient();
-        var repo = await client.Repository.Create(_settings.OrgName, new NewRepository(repoName)
+        try
         {
-            Private     = true,
-            AutoInit    = true,
-            Description = $"FlatPlanet project: {repoName}"
-        });
-        return ($"{_settings.OrgName}/{repoName}", repo.HtmlUrl);
+            var repo = await client.Repository.Create(_settings.OrgName, new NewRepository(repoName)
+            {
+                Private     = true,
+                AutoInit    = true,
+                Description = $"FlatPlanet project: {repoName}"
+            });
+            return ($"{_settings.OrgName}/{repoName}", repo.HtmlUrl);
+        }
+        catch (ApiValidationException ex)
+        {
+            throw new InvalidOperationException(
+                $"GitHub repository '{repoName}' could not be created: {ex.ApiError?.Message ?? ex.Message}");
+        }
+        catch (ApiException ex)
+        {
+            throw new InvalidOperationException(
+                $"GitHub API error while creating repository '{repoName}': {ex.Message}");
+        }
     }
 
     public async Task PushClaudeMdAsync(string repoFullName, string branch, string content)

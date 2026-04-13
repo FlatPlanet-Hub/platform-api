@@ -1,4 +1,5 @@
 using Dapper;
+using Npgsql;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
 
@@ -50,7 +51,14 @@ public sealed class ProjectRepository : IProjectRepository
             VALUES (@Id, @Name, @Description, @SchemaName, @OwnerId, @AppId, @AppSlug, @GitHubRepo, @GitHubRepoName, @GitHubBranch, @GitHubRepoLink, @TechStack, @ProjectType, @AuthEnabled, @IsActive, @CreatedAt, @UpdatedAt)
             RETURNING *
             """;
-        return await conn.QuerySingleAsync<Project>(sql, project);
+        try
+        {
+            return await conn.QuerySingleAsync<Project>(sql, project);
+        }
+        catch (PostgresException ex)
+        {
+            throw new InvalidOperationException($"Failed to create project: {ex.MessageText} (SQLSTATE {ex.SqlState})");
+        }
     }
 
     public async Task UpdateAsync(Project project)
