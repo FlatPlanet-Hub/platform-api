@@ -10,6 +10,8 @@ namespace FlatPlanet.Platform.Application.Services;
 
 public sealed class ClaudeConfigService : IClaudeConfigService
 {
+    public const string TemplateVersion = "1.2.0";
+
     private readonly IProjectRepository _projectRepo;
     private readonly IApiTokenRepository _apiTokenRepo;
     private readonly IJwtService _jwtService;
@@ -167,6 +169,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         return (rawToken, renderedMarkdown);
     }
 
+    public ClaudeConfigVersionResponse GetTemplateVersion() =>
+        new(TemplateVersion);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private async Task<(Project project, string[] permissions)> GetContextAsync(Guid userId, Guid projectId)
@@ -288,6 +293,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("<!-- This file contains a live API token scoped to your project database. -->");
         sb.AppendLine("<!-- Add CLAUDE-local.md to your .gitignore immediately if not already done. -->");
         sb.AppendLine("<!-- Regenerate from the FlatPlanet Hub if this token is ever exposed.      -->");
+        sb.AppendLine($"<!-- template-version: {TemplateVersion} -->");
         sb.AppendLine();
         sb.AppendLine("> **⚠️ LOCAL FILE — DO NOT COMMIT**");
         sb.AppendLine("> This file is git-ignored for a reason. It contains a **live API token** tied to your project's database.");
@@ -298,7 +304,24 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine();
         sb.AppendLine("## Session Startup — Read This First");
         sb.AppendLine();
-        sb.AppendLine("Before doing anything else, read `CONVERSATION-LOG.md` in the project root.");
+        sb.AppendLine("### Step 1 — Check for template updates");
+        sb.AppendLine("Call this endpoint to check if your CLAUDE-local.md is up to date:");
+        sb.AppendLine($"GET {baseUrl}/api/projects/{pid}/claude-config/version");
+        sb.AppendLine($"Header: Authorization: Bearer {token}");
+        sb.AppendLine();
+        sb.AppendLine($"Compare the returned `templateVersion` against this file's version: {TemplateVersion}");
+        sb.AppendLine();
+        sb.AppendLine("If the returned version is NEWER than this file's version:");
+        sb.AppendLine("  Stop and tell the user:");
+        sb.AppendLine($"  \"Your CLAUDE-local.md is outdated (this file: {TemplateVersion}, latest: <returned version>).");
+        sb.AppendLine("   Please go to the FlatPlanet Hub dashboard, click Regenerate on this project,");
+        sb.AppendLine("   download the new file, and replace CLAUDE-local.md before continuing.\"");
+        sb.AppendLine("  Do NOT proceed with any work until the user confirms they have updated the file.");
+        sb.AppendLine();
+        sb.AppendLine("If versions match — proceed to Step 2.");
+        sb.AppendLine();
+        sb.AppendLine("### Step 2 — Read session log");
+        sb.AppendLine("Read `CONVERSATION-LOG.md` in the project root.");
         sb.AppendLine("This is Claude's memory across sessions — current state, decisions made, open issues, what to do next.");
         sb.AppendLine("If the file does not exist yet, create it before closing the session.");
         sb.AppendLine("At the end of every session, append a new entry to `CONVERSATION-LOG.md` before committing.");

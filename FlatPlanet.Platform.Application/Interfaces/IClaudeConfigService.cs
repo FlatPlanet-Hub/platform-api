@@ -17,4 +17,10 @@ public interface IClaudeConfigService
     /// rendered CLAUDE-local.md content. Called during project creation and Azure provisioning.
     /// </summary>
     Task<(string RawToken, string RenderedMarkdown)> RenderAndStoreTokenAsync(Project project, Guid userId, string actorEmail, string baseUrl);
+
+    /// <summary>
+    /// Returns the current template version constant embedded in the service.
+    /// Used by Claude agents to detect whether their local CLAUDE-local.md is outdated.
+    /// </summary>
+    ClaudeConfigVersionResponse GetTemplateVersion();
 }

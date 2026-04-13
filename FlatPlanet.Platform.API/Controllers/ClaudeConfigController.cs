@@ -53,6 +53,16 @@ public sealed class ClaudeConfigController : ApiControllerBase
         return OkData(result);
     }
 
+    [HttpGet("version")]
+    public ActionResult<ApiResponse<ClaudeConfigVersionResponse>> GetVersion(Guid projectId)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var result = _claudeConfigService.GetTemplateVersion();
+        return Ok(ApiResponse<ClaudeConfigVersionResponse>.Ok(result));
+    }
+
     [HttpDelete]
     public async Task<ActionResult<ApiResponse<object?>>> Revoke(Guid projectId)
     {
