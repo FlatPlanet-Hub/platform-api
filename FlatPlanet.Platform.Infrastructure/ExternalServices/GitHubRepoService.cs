@@ -528,5 +528,8 @@ public sealed class GitHubRepoService : IGitHubRepoService
         # Logs
         *.log
         npm-debug.log*
+
+        # Auto-generated docs (source of truth is the live API)
+        DATA_DICTIONARY.md
         """;
 }

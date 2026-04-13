@@ -368,6 +368,10 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("## Working With the Database");
         sb.AppendLine();
         sb.AppendLine("### Step 0 — Check the naming dictionary BEFORE naming anything");
+        sb.AppendLine();
+        sb.AppendLine("> ⚠️ Do NOT read DATA_DICTIONARY.md from the local filesystem — it may be stale.");
+        sb.AppendLine("> Always query the live API below for accurate schema context.");
+        sb.AppendLine();
         sb.AppendLine("Before creating any table, column, variable, or function, query the data dictionary");
         sb.AppendLine("to find the approved standard name for the concept you are working with.");
         sb.AppendLine();
