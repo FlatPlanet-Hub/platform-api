@@ -168,9 +168,17 @@ public sealed class ProvisionAzureService(
         };
 
         // 7. Push secret and workflow to GitHub (awaited — not fire-and-forget)
-        await Task.WhenAll(
-            gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", publishProfileXml),
-            gitHubRepo.UpdateWorkflowAsync(project.GitHubRepo, cdWorkflow));
+        try
+        {
+            await Task.WhenAll(
+                gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", publishProfileXml),
+                gitHubRepo.UpdateWorkflowAsync(project.GitHubRepo, cdWorkflow));
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"GitHub sync failed for repo '{project.GitHubRepo}': {ex.Message}", ex);
+        }
 
         logger.LogInformation(
             "GitHub Actions synced for project {ProjectId} — repo: {Repo}, app service: {AppService}",
