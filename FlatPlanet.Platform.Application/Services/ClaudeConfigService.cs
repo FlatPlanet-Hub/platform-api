@@ -592,6 +592,13 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             sb.AppendLine();
             sb.AppendLine("This project has no Azure App Service yet.");
             sb.AppendLine();
+            sb.AppendLine("### Deployment type guidance");
+            sb.AppendLine("All FlatPlanet backend projects deploy to **Azure App Service** — not Azure Functions.");
+            sb.AppendLine("If the current codebase is structured as Azure Functions, recommend converting it");
+            sb.AppendLine("to a standard ASP.NET Core Web API before provisioning.");
+            sb.AppendLine("Azure Functions is only appropriate for isolated event-driven/scheduled workloads,");
+            sb.AppendLine("not for full REST APIs serving the frontend.");
+            sb.AppendLine();
             sb.AppendLine("To provision, tell Claude Code:");
             sb.AppendLine("  \"provision Azure for this project\"");
             sb.AppendLine();
