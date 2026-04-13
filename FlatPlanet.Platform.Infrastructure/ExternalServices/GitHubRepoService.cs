@@ -261,7 +261,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
             try
             {
                 await client.Repository.Content.CreateFile(owner, repoName, placeholder,
-                    new CreateFileRequest("ci: init .github directory", string.Empty, "main"));
+                    new CreateFileRequest("ci: init .github directory", " ", "main"));
             }
             catch
             {
