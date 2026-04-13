@@ -29,7 +29,14 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task<IEnumerable<ProjectMemberResponse>> GetMembersAsync(Guid projectId, Guid userId)
     {
         var project = await GetOrThrowAsync(projectId);
-        if (project.AppSlug is not null)
+
+        var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+             a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+
+        if (!canViewAll && project.AppSlug is not null)
         {
             var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "read");
             if (!allowed) throw new UnauthorizedAccessException("You do not have read access to this project.");
@@ -61,7 +68,7 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task InviteMemberAsync(Guid projectId, Guid requestingUserId, InviteUserRequest request)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, "manage_members");
+        await RequirePermissionAsync(project, "manage_members", requestingUserId);
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
@@ -96,7 +103,7 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task RemoveMemberAsync(Guid projectId, Guid targetUserId, Guid requestingUserId)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, "manage_members");
+        await RequirePermissionAsync(project, "manage_members", requestingUserId);
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
@@ -113,7 +120,7 @@ public sealed class ProjectMemberService : IProjectMemberService
     public async Task UpdateMemberRoleAsync(Guid projectId, Guid targetUserId, Guid requestingUserId, UpdateMemberRoleRequest request)
     {
         var project = await GetOrThrowAsync(projectId);
-        await RequirePermissionAsync(project, "manage_members");
+        await RequirePermissionAsync(project, "manage_members", requestingUserId);
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project is not registered in the Security Platform.");
@@ -129,9 +136,20 @@ public sealed class ProjectMemberService : IProjectMemberService
         await _projectRepo.GetByIdAsync(projectId)
         ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
-    private async Task RequirePermissionAsync(Domain.Entities.Project project, string permission)
+    private async Task RequirePermissionAsync(Domain.Entities.Project project, string permission, Guid requestingUserId = default)
     {
         if (project.AppSlug is null) return;
+
+        if (requestingUserId != default)
+        {
+            var appAccess = await _securityPlatform.GetUserAppAccessAsync(requestingUserId);
+            var canViewAll = appAccess.Any(a =>
+                a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+                (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+                 a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+            if (canViewAll) return;
+        }
+
         var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, project.Id.ToString(), permission);
         if (!allowed) throw new UnauthorizedAccessException($"You do not have '{permission}' permission on this project.");
     }
