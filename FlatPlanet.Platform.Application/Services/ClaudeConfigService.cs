@@ -599,18 +599,14 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             sb.AppendLine("  Twilio__AuthToken");
             sb.AppendLine("  ExternalApi__Key");
             sb.AppendLine();
-            sb.AppendLine("### Deploy via Azure CLI");
-            sb.AppendLine("From your project root:");
+            sb.AppendLine("### Deploy");
+            sb.AppendLine("Deployment is handled automatically by GitHub Actions on every push to `main`.");
+            sb.AppendLine("Do NOT install `az` CLI or run `dotnet publish` manually — just push your code:");
             sb.AppendLine();
-            sb.AppendLine("  az login");
-            sb.AppendLine("  dotnet publish -c Release -o ./publish");
-            sb.AppendLine("  az webapp deploy \\");
-            sb.AppendLine("    --resource-group FPPlatform \\");
-            sb.AppendLine($"    --name {project.AzureAppServiceName} \\");
-            sb.AppendLine("    --src-path ./publish \\");
-            sb.AppendLine("    --type zip");
+            sb.AppendLine("  git push origin main");
             sb.AppendLine();
-            sb.AppendLine("Tell Claude Code \"deploy to Azure\" and it will run this for you.");
+            sb.AppendLine("GitHub Actions will build, test, and deploy to Azure App Service automatically.");
+            sb.AppendLine("To deploy a feature branch, merge it into `main` first (or open a PR to main).");
         }
 
         sb.AppendLine();
