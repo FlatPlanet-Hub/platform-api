@@ -112,6 +112,76 @@ public sealed class ProvisionAzureService(
         return new ProvisionAzureResponse(result.AppServiceName, result.AppServiceUrl, envVars.PlatformApiToken);
     }
 
+    public async Task<SyncGitHubActionsResponse> SyncGitHubActionsAsync(
+        Guid projectId,
+        Guid userId,
+        string userEmail)
+    {
+        // 1. Load project
+        var project = await projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        // 2. Guard: must be provisioned
+        if (string.IsNullOrWhiteSpace(project.AzureAppServiceName))
+            throw new InvalidOperationException("Azure App Service has not been provisioned for this project.");
+
+        // 3. Guard: must have a GitHub repo linked
+        if (string.IsNullOrWhiteSpace(project.GitHubRepo))
+            throw new InvalidOperationException("Project does not have a GitHub repository linked.");
+
+        // 4. Authorization check: same rules as ProvisionAsync
+        var appAccess = await securityPlatform.GetUserAppAccessAsync(userId);
+
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+             a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+
+        if (!canViewAll)
+        {
+            var projectAccess = project.AppId.HasValue
+                ? appAccess.FirstOrDefault(a => a.AppId == project.AppId.Value)
+                : null;
+
+            var hasPermission = projectAccess is not null &&
+                projectAccess.Permissions.Any(p =>
+                    p.Equals("write", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("manage_members", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("owner", StringComparison.OrdinalIgnoreCase));
+
+            if (!hasPermission)
+                throw new UnauthorizedAccessException("You do not have permission to sync GitHub Actions for this project.");
+        }
+
+        // 5. Fetch publish profile from Azure
+        var publishProfileXml = await provisioner.GetPublishProfileAsync(project.AzureAppServiceName);
+
+        if (string.IsNullOrWhiteSpace(publishProfileXml))
+            throw new InvalidOperationException(
+                $"Could not retrieve the publish profile for App Service '{project.AzureAppServiceName}'. Ensure the service exists and the managed identity has access.");
+
+        // 6. Build the appropriate CD workflow
+        var cdWorkflow = project.ProjectType.ToLowerInvariant() switch
+        {
+            "backend" => GitHubRepoService.BuildBackendCdWorkflow(project.AzureAppServiceName),
+            _         => GitHubRepoService.BuildFullstackCdWorkflow(project.AzureAppServiceName)
+        };
+
+        // 7. Push secret and workflow to GitHub (awaited — not fire-and-forget)
+        await Task.WhenAll(
+            gitHubRepo.SetRepoSecretAsync(project.GitHubRepo, "AZURE_WEBAPP_PUBLISH_PROFILE", publishProfileXml),
+            gitHubRepo.UpdateWorkflowAsync(project.GitHubRepo, cdWorkflow));
+
+        logger.LogInformation(
+            "GitHub Actions synced for project {ProjectId} — repo: {Repo}, app service: {AppService}",
+            projectId, project.GitHubRepo, project.AzureAppServiceName);
+
+        return new SyncGitHubActionsResponse(
+            project.AzureAppServiceName,
+            project.GitHubRepo,
+            "GitHub Actions workflow and secret synced successfully.");
+    }
+
     private static string BuildAppServiceName(string slug)
     {
         // Lowercase, replace non-alphanumeric/non-hyphen with hyphen

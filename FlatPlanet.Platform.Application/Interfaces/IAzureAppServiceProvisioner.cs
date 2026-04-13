@@ -16,4 +16,10 @@ public interface IAzureAppServiceProvisioner
     Task<(string AppServiceName, string AppServiceUrl, string PublishProfileXml)> ProvisionAsync(
         string appServiceName,
         AppServiceEnvVars envVars);
+
+    /// <summary>
+    /// Fetches the publishing profile XML for an already-provisioned App Service.
+    /// Returns an empty string if the profile cannot be retrieved.
+    /// </summary>
+    Task<string> GetPublishProfileAsync(string appServiceName);
 }

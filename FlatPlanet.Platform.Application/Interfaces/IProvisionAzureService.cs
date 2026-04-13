@@ -9,4 +9,9 @@ public interface IProvisionAzureService
         Guid userId,
         string userEmail,
         string hubBaseUrl);
+
+    Task<SyncGitHubActionsResponse> SyncGitHubActionsAsync(
+        Guid projectId,
+        Guid userId,
+        string userEmail);
 }

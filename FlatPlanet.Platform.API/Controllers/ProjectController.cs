@@ -93,4 +93,15 @@ public sealed class ProjectController : ApiControllerBase
         var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, userEmail, hubBaseUrl);
         return OkData(result);
     }
+
+    [HttpPost("{id:guid}/sync-github-actions")]
+    public async Task<IActionResult> SyncGitHubActions(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var result = await _provisionAzureService.SyncGitHubActionsAsync(id, userId.Value, userEmail);
+        return OkData(result);
+    }
 }

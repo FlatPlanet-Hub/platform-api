@@ -110,6 +110,28 @@ public sealed class AzureAppServiceProvisioner(
         return (appServiceName, url, publishProfileXml);
     }
 
+    public async Task<string> GetPublishProfileAsync(string appServiceName)
+    {
+        try
+        {
+            var credential = new DefaultAzureCredential();
+            var armClient = new ArmClient(credential, _azure.SubscriptionId);
+
+            var siteResourceId = global::Azure.Core.ResourceIdentifier.Parse(
+                $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}/providers/Microsoft.Web/sites/{appServiceName}");
+            var site = armClient.GetWebSiteResource(siteResourceId);
+
+            var profileResponse = await site.GetPublishingProfileXmlWithSecretsAsync(new CsmPublishingProfile());
+            using var reader = new System.IO.StreamReader(profileResponse.Value);
+            return await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}'", appServiceName);
+            return string.Empty;
+        }
+    }
+
     private string BuildConnectionString(string schemaName) =>
         $"Host={_supabase.Host};Port={_supabase.Port};Database={_supabase.Database};" +
         $"Username={_supabase.AdminUser};Password={_supabase.AdminPassword};" +
