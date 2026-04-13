@@ -101,6 +101,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
         }
         catch (NotFoundException)
         {
+            await EnsureGitHubDirectoryAsync(client, owner, repoName);
             var workflow = BuildWorkflow(project);
             await client.Repository.Content.CreateFile(owner, repoName, workflowPath,
                 new CreateFileRequest("ci: add GitHub Actions workflow", workflow, "main"));
@@ -199,6 +200,9 @@ public sealed class GitHubRepoService : IGitHubRepoService
         }
         catch (NotFoundException)
         {
+            // GitHub API cannot create deeply nested paths if parent directories don't exist.
+            // Ensure .github/ exists first by creating a placeholder, then create the workflow.
+            await EnsureGitHubDirectoryAsync(client, owner, repoName);
             await client.Repository.Content.CreateFile(owner, repoName, path,
                 new CreateFileRequest("ci: add CI/CD workflow", workflowContent, "main"));
         }
@@ -240,6 +244,31 @@ public sealed class GitHubRepoService : IGitHubRepoService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// GitHub Contents API cannot create deeply nested paths when parent directories don't exist.
+    /// This ensures .github/ exists before we attempt to create .github/workflows/ci.yml.
+    /// </summary>
+    private static async Task EnsureGitHubDirectoryAsync(GitHubClient client, string owner, string repoName)
+    {
+        const string placeholder = ".github/.gitkeep";
+        try
+        {
+            await client.Repository.Content.GetAllContents(owner, repoName, ".github");
+        }
+        catch (NotFoundException)
+        {
+            try
+            {
+                await client.Repository.Content.CreateFile(owner, repoName, placeholder,
+                    new CreateFileRequest("ci: init .github directory", string.Empty, "main"));
+            }
+            catch
+            {
+                // If creation fails (e.g. race condition), proceed anyway
+            }
+        }
+    }
 
     private static string BuildWorkflow(DomainProject project)
     {
