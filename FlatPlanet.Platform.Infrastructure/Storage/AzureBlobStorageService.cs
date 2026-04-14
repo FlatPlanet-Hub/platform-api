@@ -66,11 +66,20 @@ public class AzureBlobStorageService : IFileStorageService
 
     public async Task<FileUrlResponse> GetSasUrlAsync(Guid fileId, Guid requestedBy, Guid? appId = null)
     {
-        var file = await _fileRepo.GetByIdAsync(fileId)
+        var file = await _fileRepo.GetByIdAsync(fileId, appId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
 
+        // App-scoped token: enforce app_id isolation
         if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
             throw new UnauthorizedAccessException("You do not have access to this file.");
+
+        // Platform token must not touch app-scoped files
+        if (!appId.HasValue && file.AppId.HasValue)
+            throw new UnauthorizedAccessException("You do not have access to this file.");
+
+        // Platform token + unscoped file: enforce ownership — only the uploader can access
+        if (!appId.HasValue && file.UploadedBy != requestedBy)
+            throw new UnauthorizedAccessException("You can only access files you uploaded.");
 
         var blobClient = _container.GetBlobClient(file.BlobName);
         var expiry = DateTime.UtcNow.AddMinutes(_settings.SasExpiryMinutes);
@@ -79,9 +88,11 @@ public class AzureBlobStorageService : IFileStorageService
         return new FileUrlResponse(sasUrl, expiry);
     }
 
-    public async Task<IEnumerable<FileDto>> ListAsync(string businessCode, string? category, string[]? tags, Guid? appId = null)
+    public async Task<IEnumerable<FileDto>> ListAsync(string businessCode, string? category, string[]? tags, Guid? appId = null, Guid? uploadedBy = null)
     {
-        var files = await _fileRepo.ListAsync(businessCode, category, tags, appId);
+        // Platform tokens (no appId) see only their own unscoped files
+        var effectiveUploadedBy = appId.HasValue ? null : uploadedBy;
+        var files = await _fileRepo.ListAsync(businessCode, category, tags, appId, effectiveUploadedBy);
         var expiry = DateTime.UtcNow.AddMinutes(_settings.SasExpiryMinutes);
 
         var dtos = new List<FileDto>();
@@ -96,14 +107,18 @@ public class AzureBlobStorageService : IFileStorageService
 
     public async Task DeleteAsync(Guid fileId, Guid deletedBy, Guid? appId = null)
     {
-        var file = await _fileRepo.GetByIdAsync(fileId)
+        var file = await _fileRepo.GetByIdAsync(fileId, appId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
 
         // App-scoped token: enforce app_id isolation
         if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
             throw new UnauthorizedAccessException("You do not have access to this file.");
 
-        // Platform token (no app_id): enforce ownership — only the uploader can delete
+        // Platform token must not touch app-scoped files
+        if (!appId.HasValue && file.AppId.HasValue)
+            throw new UnauthorizedAccessException("You do not have access to this file.");
+
+        // Platform token + unscoped file: enforce ownership — only the uploader can delete
         if (!appId.HasValue && file.UploadedBy != deletedBy)
             throw new UnauthorizedAccessException("You can only delete files you uploaded.");
 

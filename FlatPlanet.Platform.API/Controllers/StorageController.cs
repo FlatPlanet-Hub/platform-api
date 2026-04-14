@@ -55,7 +55,7 @@ public class StorageController : ApiControllerBase
         Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
 
         var tagArray = tags?.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        var result = await _storageService.ListAsync(businessCode, category, tagArray, appId);
+        var result = await _storageService.ListAsync(businessCode, category, tagArray, appId, userId);
         return Ok(result);
     }
 
