@@ -48,6 +48,9 @@ public class StorageController : ApiControllerBase
         [FromQuery] string? category = null,
         [FromQuery] string? tags = null)
     {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
         // Scope listing to the calling app — same app_id extraction as upload.
         Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
 
@@ -62,7 +65,9 @@ public class StorageController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        var result = await _storageService.GetSasUrlAsync(fileId, userId.Value);
+        Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
+
+        var result = await _storageService.GetSasUrlAsync(fileId, userId.Value, appId);
         return Ok(result);
     }
 
@@ -72,7 +77,9 @@ public class StorageController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        await _storageService.DeleteAsync(fileId, userId.Value);
+        Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
+
+        await _storageService.DeleteAsync(fileId, userId.Value, appId);
         return NoContent();
     }
 }

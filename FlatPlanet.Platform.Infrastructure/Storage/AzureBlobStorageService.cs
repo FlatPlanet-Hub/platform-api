@@ -64,10 +64,13 @@ public class AzureBlobStorageService : IFileStorageService
         return ToDto(file, sasUrl, sasExpiry);
     }
 
-    public async Task<FileUrlResponse> GetSasUrlAsync(Guid fileId, Guid requestedBy)
+    public async Task<FileUrlResponse> GetSasUrlAsync(Guid fileId, Guid requestedBy, Guid? appId = null)
     {
         var file = await _fileRepo.GetByIdAsync(fileId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
+
+        if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
+            throw new UnauthorizedAccessException("You do not have access to this file.");
 
         var blobClient = _container.GetBlobClient(file.BlobName);
         var expiry = DateTime.UtcNow.AddMinutes(_settings.SasExpiryMinutes);
@@ -91,10 +94,13 @@ public class AzureBlobStorageService : IFileStorageService
         return dtos;
     }
 
-    public async Task DeleteAsync(Guid fileId, Guid deletedBy)
+    public async Task DeleteAsync(Guid fileId, Guid deletedBy, Guid? appId = null)
     {
         var file = await _fileRepo.GetByIdAsync(fileId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
+
+        if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
+            throw new UnauthorizedAccessException("You do not have access to this file.");
 
         var blobClient = _container.GetBlobClient(file.BlobName);
         await blobClient.DeleteIfExistsAsync();
@@ -120,6 +126,6 @@ public class AzureBlobStorageService : IFileStorageService
     }
 
     private static FileDto ToDto(PlatformFile file, string sasUrl, DateTime sasExpiry) =>
-        new(file.Id, file.BusinessCode, file.Category, file.OriginalName,
+        new(file.Id, file.AppId, file.BusinessCode, file.Category, file.OriginalName,
             file.ContentType, file.FileSizeBytes, file.Tags, sasUrl, sasExpiry, file.CreatedAt);
 }
