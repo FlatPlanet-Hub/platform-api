@@ -12,13 +12,11 @@ namespace FlatPlanet.Platform.API.Controllers;
 public sealed class MigrationController : ApiControllerBase
 {
     private readonly IDbProxyService _dbProxy;
-    private readonly IGitHubRepoService _repoService;
     private readonly IAuditService _audit;
 
-    public MigrationController(IDbProxyService dbProxy, IGitHubRepoService repoService, IAuditService audit)
+    public MigrationController(IDbProxyService dbProxy, IAuditService audit)
     {
         _dbProxy = dbProxy;
-        _repoService = repoService;
         _audit = audit;
     }
 
@@ -60,7 +58,6 @@ public sealed class MigrationController : ApiControllerBase
         await _dbProxy.CreateTableAsync(claims.Schema, request);
         await _audit.LogAsync(GetUserId(), null, "migration.create_table", claims.Schema,
             new { table = request.TableName });
-        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -88,7 +85,6 @@ public sealed class MigrationController : ApiControllerBase
         await _dbProxy.AlterTableAsync(claims.Schema, request);
         await _audit.LogAsync(GetUserId(), null, "migration.alter_table", claims.Schema,
             new { table = request.TableName });
-        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
@@ -107,22 +103,7 @@ public sealed class MigrationController : ApiControllerBase
         await _dbProxy.DropTableAsync(claims.Schema, table);
         await _audit.LogAsync(GetUserId(), null, "migration.drop_table", claims.Schema,
             new { table });
-        await TrySyncDataDictionaryAsync(claims);
         return Ok(ApiResponse<object?>.Ok(null));
-    }
-
-    // Fire-and-forget style: DATA_DICTIONARY sync is best-effort — a GitHub failure
-    // must never roll back a successful DDL operation.
-    private async Task TrySyncDataDictionaryAsync(Domain.Entities.ProjectClaims claims)
-    {
-        try
-        {
-            await _repoService.SyncDataDictionaryAsync(Guid.Parse(claims.ProjectId), claims.Schema);
-        }
-        catch
-        {
-            // Intentionally swallowed — DDL succeeded; sync failure is non-fatal.
-        }
     }
 
     private Domain.Entities.ProjectClaims? GetClaims() =>
