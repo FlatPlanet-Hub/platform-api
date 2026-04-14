@@ -167,7 +167,14 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 
 ## File Storage
 
-Centralized file storage is provided via Azure Blob Storage. All FlatPlanet applications share a single storage account (`flatplanetassets`), with files scoped by business code and category.
+Centralized file storage is provided via Azure Blob Storage. Files are automatically isolated by token type — projects cannot access each other's files.
+
+### Two-Tier Isolation
+
+| Token type | Who uses it | Upload path | List returns | Get URL / Delete |
+|---|---|---|---|---|
+| App-scoped (project API token — has `app_id` claim) | Project teams via CLAUDE-local.md | `{businessCode}/{appId}/{category}/{fileId}.ext` | All files for that app (shared across team) | 404 if file belongs to a different app |
+| Platform token (SP user JWT — no `app_id` claim) | Hub/admin users | `{businessCode}/unscoped/{category}/{fileId}.ext` | Only files the caller uploaded (unscoped only) | 403 if app-scoped or uploaded by another user |
 
 ### Storage Layout
 
@@ -175,8 +182,12 @@ Centralized file storage is provided via Azure Blob Storage. All FlatPlanet appl
 flatplanetassets (storage account)
   flatplanet-assets (container)
     {businessCode}/
-      {category}/
-        {fileId}.{ext}
+      {appId}/           ← app-scoped uploads (project API tokens)
+        {category}/
+          {fileId}.{ext}
+      unscoped/          ← platform uploads (SP user JWTs)
+        {category}/
+          {fileId}.{ext}
 ```
 
 ### SAS URLs
