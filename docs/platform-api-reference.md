@@ -1,11 +1,20 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
 
 ---
+
+## What's New in v1.3.0
+
+| Change | Details |
+|---|---|
+| Storage app_id scoping | All four storage endpoints now enforce two-tier isolation based on JWT token type — app-scoped tokens (project API tokens with `app_id` claim) see only their app's files; platform tokens (SP user JWTs) see only their own unscoped uploads |
+| Blob path split | App-scoped uploads: `{businessCode}/{appId}/{category}/{fileId}.ext`. Platform (unscoped) uploads: `{businessCode}/unscoped/{category}/{fileId}.ext` |
+| Cross-app 404 / cross-user 403 | Get URL and Delete now return `404` for app-scoped requests that cross app boundaries, and `403` for platform-token requests that cross user or app-scoped file boundaries |
+| DB migration `013` | `app_id UUID NULL` column + index added to `platform.files` |
 
 ## What's New in v1.2.0
 
@@ -1644,11 +1653,20 @@ Executes a parameterized `INSERT`, `UPDATE`, or `DELETE` against the project sch
 
 ## File Storage
 
-Centralized file storage using Azure Blob Storage. Files are scoped per business code and category.
+Centralized file storage using Azure Blob Storage. The storage layer enforces **two-tier isolation** based on the JWT token type presented by the caller.
 
-**Auth required**: Yes — Security Platform JWT (user must have a valid `business_codes` claim matching the requested `businessCode`).
+**Storage account**: `flatplanetassets` / container: `flatplanet-assets`
 
-**Storage layout**: `flatplanetassets` (account) / `flatplanet-assets` (container) / `{businessCode}/{category}/{fileId}.{ext}`
+**Token types and isolation rules:**
+
+| Token type | Identifies as | Upload blob path | List scope | URL / Delete scope |
+|---|---|---|---|---|
+| **App-scoped token** (project API token — carries `app_id` claim) | A specific application | `{businessCode}/{appId}/{category}/{fileId}.ext` | All files for that `app_id` across all uploaders | Own app only — cross-app `fileId` returns `404` |
+| **Platform token** (SP user JWT — no `app_id` claim) | An individual user | `{businessCode}/unscoped/{category}/{fileId}.ext` | Only files the caller personally uploaded that have no `app_id` | Own unscoped files only — app-scoped file returns `403`; another user's unscoped file returns `403` |
+
+> **Design intent:** App-scoped tokens implement a shared document model — any member of the app can list and access all files uploaded under that app, enabling shared asset libraries. Platform tokens are user-personal — they can only see and manage files they themselves uploaded, and cannot touch app-scoped files.
+
+**Auth required**: Yes — either a project API token (with `app_id` claim) or a Security Platform JWT.
 
 ---
 
@@ -1658,6 +1676,8 @@ Centralized file storage using Azure Blob Storage. Files are scoped per business
 
 Uploads a file to Azure Blob Storage. Request must be `multipart/form-data`. Maximum file size is **50 MB**.
 
+The file is automatically tagged with the caller's `app_id` (app-scoped tokens) or stored as unscoped (platform tokens). The blob path is determined by the token type — callers do not specify the path.
+
 #### Request — multipart/form-data
 
 | Field | Type | Required | Notes |
@@ -1666,6 +1686,13 @@ Uploads a file to Azure Blob Storage. Request must be `multipart/form-data`. Max
 | `businessCode` | string | Yes | Short company code (e.g. `"fp"`). Must match a code in the caller's `business_codes` JWT claim. |
 | `category` | string | No | Logical grouping for the file (e.g. `"logos"`, `"documents"`). Defaults to `"general"`. |
 | `tags` | string | No | Comma-separated tag list (e.g. `"logo,primary"`). |
+
+#### Blob path by token type
+
+| Token type | Blob path |
+|---|---|
+| App-scoped (has `app_id`) | `{businessCode}/{appId}/{category}/{fileId}.ext` |
+| Platform token (no `app_id`) | `{businessCode}/unscoped/{category}/{fileId}.ext` |
 
 #### Success Response — 200
 
@@ -1710,7 +1737,7 @@ Uploads a file to Azure Blob Storage. Request must be `multipart/form-data`. Max
 
 **`GET /api/v1/storage/files`**
 
-Returns files accessible to the caller, with optional filters.
+Returns files accessible to the caller, with optional filters. The result set is automatically scoped by token type — callers never see files outside their isolation boundary.
 
 #### Query Parameters
 
@@ -1746,10 +1773,17 @@ GET /api/v1/storage/files?businessCode=fp&category=logos&tags=test
 }
 ```
 
+#### Scoping behaviour by token type
+
+| Token type | Files returned |
+|---|---|
+| App-scoped (has `app_id`) | All files tagged with that `app_id`, regardless of which user uploaded them. |
+| Platform token (no `app_id`) | Only files the caller personally uploaded that have no `app_id`. |
+
 #### Notes
 
-- Results are filtered to files belonging to `businessCode` values in the caller's JWT `business_codes` claim.
 - Soft-deleted files are excluded.
+- The scope filter is enforced at the database query level — no post-filter leakage is possible.
 
 ---
 
@@ -1777,13 +1811,14 @@ Generates a fresh SAS URL for an existing file. The previous URL (from upload or
 
 | HTTP | Message | Cause |
 |---|---|---|
-| `403` | — | File belongs to a `businessCode` not in the caller's JWT claim. |
-| `404` | — | No file with that ID, or the file has been soft-deleted. |
+| `403` | — | Platform token caller: file is app-scoped, or file belongs to a different user. |
+| `404` | — | App-scoped token caller: `fileId` belongs to a different `app_id`. Also returned for non-existent or soft-deleted files. |
 
 #### Notes
 
 - SAS URLs are generated using Managed Identity user delegation keys. No storage account key is stored in the application.
 - Call this endpoint to refresh a URL before it expires (60-minute window).
+- Access enforcement is applied via a DB-level filter on the file record — the `app_id` or `uploaded_by` column is checked before the blob URL is generated.
 
 ---
 
@@ -1803,8 +1838,13 @@ Soft-deletes a file. The database record is marked deleted; the blob in Azure is
 
 | HTTP | Message | Cause |
 |---|---|---|
-| `403` | — | File belongs to a `businessCode` not in the caller's JWT claim. |
-| `404` | — | No file with that ID, or already deleted. |
+| `403` | — | Platform token caller: file is app-scoped, or file belongs to a different user. |
+| `404` | — | App-scoped token caller: `fileId` belongs to a different `app_id`. Also returned for non-existent or already-deleted files. |
+
+#### Notes
+
+- Access enforcement mirrors `GET /url` — same DB-level filter applies before the soft-delete executes.
+- App-scoped callers can delete any file belonging to their `app_id`, regardless of who uploaded it.
 
 ---
 

@@ -5,6 +5,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.3.0] — 2026-04-15
+
+### Added — FEAT-STORAGE-SCOPE: App_id Scoping for File Storage
+
+- **Two-tier storage isolation** — all four storage endpoints now enforce caller isolation based on JWT token type:
+  - **App-scoped tokens** (project API tokens — carry `app_id` claim): files are tagged with the caller's `app_id`. List returns all files for that app across all uploaders (shared document model). Get URL and Delete return `404` for file IDs belonging to a different `app_id`.
+  - **Platform tokens** (SP user JWTs — no `app_id` claim): files are stored as unscoped. List returns only files the caller personally uploaded that have no `app_id`. Get URL and Delete return `403` for app-scoped files or files uploaded by a different user.
+- **Blob path split by token type:**
+  - App-scoped: `{businessCode}/{appId}/{category}/{fileId}.ext`
+  - Platform (unscoped): `{businessCode}/unscoped/{category}/{fileId}.ext`
+- **DB migration `013_scope_files_by_app.sql`** — adds `app_id UUID NULL` column and index to `platform.files`.
+- **`CLAUDE-local.md` template updated to v1.3** — storage section now explicitly tells teams not to build their own file upload and notes that files are automatically scoped to their app.
+
+### Docs
+
+- Updated `docs/platform-api-reference.md` to v1.3.0: rewrote File Storage section to document two-tier isolation, blob path split, and updated error codes (`404` for cross-app on app-scoped tokens, `403` for cross-user/cross-scope on platform tokens) across all four storage endpoints. Added isolation reference table to section header.
+
+---
+
 ## [1.2.0] — 2026-04-13
 
 ### Added — FEAT-SYNC-GHA: Sync GitHub Actions on Demand
