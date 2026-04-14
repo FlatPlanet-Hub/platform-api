@@ -66,18 +66,15 @@ public class AzureBlobStorageService : IFileStorageService
 
     public async Task<FileUrlResponse> GetSasUrlAsync(Guid fileId, Guid requestedBy, Guid? appId = null)
     {
+        // DB-level: GetByIdAsync filters by appId when set — cross-app requests return null (404).
         var file = await _fileRepo.GetByIdAsync(fileId, appId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
-
-        // App-scoped token: enforce app_id isolation
-        if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
-            throw new UnauthorizedAccessException("You do not have access to this file.");
 
         // Platform token must not touch app-scoped files
         if (!appId.HasValue && file.AppId.HasValue)
             throw new UnauthorizedAccessException("You do not have access to this file.");
 
-        // Platform token + unscoped file: enforce ownership — only the uploader can access
+        // Platform token + unscoped file: enforce ownership
         if (!appId.HasValue && file.UploadedBy != requestedBy)
             throw new UnauthorizedAccessException("You can only access files you uploaded.");
 
@@ -107,18 +104,15 @@ public class AzureBlobStorageService : IFileStorageService
 
     public async Task DeleteAsync(Guid fileId, Guid deletedBy, Guid? appId = null)
     {
+        // DB-level: GetByIdAsync filters by appId when set — cross-app requests return null (404).
         var file = await _fileRepo.GetByIdAsync(fileId, appId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
-
-        // App-scoped token: enforce app_id isolation
-        if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
-            throw new UnauthorizedAccessException("You do not have access to this file.");
 
         // Platform token must not touch app-scoped files
         if (!appId.HasValue && file.AppId.HasValue)
             throw new UnauthorizedAccessException("You do not have access to this file.");
 
-        // Platform token + unscoped file: enforce ownership — only the uploader can delete
+        // Platform token + unscoped file: enforce ownership
         if (!appId.HasValue && file.UploadedBy != deletedBy)
             throw new UnauthorizedAccessException("You can only delete files you uploaded.");
 

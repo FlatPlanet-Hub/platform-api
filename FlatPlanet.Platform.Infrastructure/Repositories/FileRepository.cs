@@ -23,7 +23,7 @@ public class FileRepository : IFileRepository
         await using var conn = _db.CreateConnection();
         var sql = "SELECT * FROM platform.files WHERE business_code = @businessCode AND is_deleted = FALSE";
         if (appId.HasValue) sql += " AND app_id = @appId::uuid";
-        if (uploadedBy.HasValue) sql += " AND uploaded_by = @uploadedBy::uuid";
+        if (uploadedBy.HasValue) sql += " AND uploaded_by = @uploadedBy::uuid AND app_id IS NULL";
         if (category != null) sql += " AND category = @category";
         if (tags != null && tags.Length > 0) sql += " AND tags && @tags";
         sql += " ORDER BY created_at DESC";
