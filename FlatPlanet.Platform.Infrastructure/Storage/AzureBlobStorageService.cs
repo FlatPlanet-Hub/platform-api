@@ -116,9 +116,12 @@ public class AzureBlobStorageService : IFileStorageService
         if (!appId.HasValue && file.UploadedBy != deletedBy)
             throw new UnauthorizedAccessException("You can only delete files you uploaded.");
 
+        // Soft-delete in DB first — if blob delete fails after this, the record is
+        // already unreachable to callers. A blob cleanup job can recover orphaned blobs.
+        await _fileRepo.SoftDeleteAsync(fileId, DateTime.UtcNow);
+
         var blobClient = _container.GetBlobClient(file.BlobName);
         await blobClient.DeleteIfExistsAsync();
-        await _fileRepo.SoftDeleteAsync(fileId, DateTime.UtcNow);
     }
 
     private async Task<string> GenerateSasUrlAsync(BlobClient blobClient, DateTime expiry)
