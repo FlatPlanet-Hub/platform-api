@@ -99,8 +99,13 @@ public class AzureBlobStorageService : IFileStorageService
         var file = await _fileRepo.GetByIdAsync(fileId)
             ?? throw new KeyNotFoundException($"File {fileId} not found.");
 
+        // App-scoped token: enforce app_id isolation
         if (appId.HasValue && file.AppId.HasValue && file.AppId != appId)
             throw new UnauthorizedAccessException("You do not have access to this file.");
+
+        // Platform token (no app_id): enforce ownership — only the uploader can delete
+        if (!appId.HasValue && file.UploadedBy != deletedBy)
+            throw new UnauthorizedAccessException("You can only delete files you uploaded.");
 
         var blobClient = _container.GetBlobClient(file.BlobName);
         await blobClient.DeleteIfExistsAsync();
