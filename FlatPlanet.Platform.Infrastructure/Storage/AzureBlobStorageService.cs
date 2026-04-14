@@ -35,7 +35,8 @@ public class AzureBlobStorageService : IFileStorageService
 
         var fileId = Guid.NewGuid();
         var ext = Path.GetExtension(fileName);
-        var blobName = $"{request.BusinessCode}/{request.Category}/{fileId}{ext}";
+        var scopeSegment = request.AppId.HasValue ? request.AppId.Value.ToString() : "unscoped";
+        var blobName = $"{request.BusinessCode}/{scopeSegment}/{request.Category}/{fileId}{ext}";
 
         var blobClient = _container.GetBlobClient(blobName);
         await blobClient.UploadAsync(fileStream, new BlobHttpHeaders { ContentType = contentType });
@@ -43,6 +44,7 @@ public class AzureBlobStorageService : IFileStorageService
         var file = new PlatformFile
         {
             Id = fileId,
+            AppId = request.AppId,
             BusinessCode = request.BusinessCode,
             Category = request.Category,
             OriginalName = fileName,
@@ -74,9 +76,9 @@ public class AzureBlobStorageService : IFileStorageService
         return new FileUrlResponse(sasUrl, expiry);
     }
 
-    public async Task<IEnumerable<FileDto>> ListAsync(string businessCode, string? category, string[]? tags)
+    public async Task<IEnumerable<FileDto>> ListAsync(string businessCode, string? category, string[]? tags, Guid? appId = null)
     {
-        var files = await _fileRepo.ListAsync(businessCode, category, tags);
+        var files = await _fileRepo.ListAsync(businessCode, category, tags, appId);
         var expiry = DateTime.UtcNow.AddMinutes(_settings.SasExpiryMinutes);
 
         var dtos = new List<FileDto>();

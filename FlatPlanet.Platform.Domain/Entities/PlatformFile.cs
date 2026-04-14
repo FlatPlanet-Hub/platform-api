@@ -3,6 +3,7 @@ namespace FlatPlanet.Platform.Domain.Entities;
 public class PlatformFile
 {
     public Guid Id { get; init; }
+    public Guid? AppId { get; init; }
     public string BusinessCode { get; init; } = string.Empty;
     public string Category { get; init; } = "general";
     public string OriginalName { get; init; } = string.Empty;

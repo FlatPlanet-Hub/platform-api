@@ -18,14 +18,15 @@ public class FileRepository : IFileRepository
             new { id });
     }
 
-    public async Task<IEnumerable<PlatformFile>> ListAsync(string businessCode, string? category, string[]? tags)
+    public async Task<IEnumerable<PlatformFile>> ListAsync(string businessCode, string? category, string[]? tags, Guid? appId = null)
     {
         await using var conn = _db.CreateConnection();
         var sql = "SELECT * FROM platform.files WHERE business_code = @businessCode AND is_deleted = FALSE";
+        if (appId.HasValue) sql += " AND app_id = @appId::uuid";
         if (category != null) sql += " AND category = @category";
         if (tags != null && tags.Length > 0) sql += " AND tags && @tags";
         sql += " ORDER BY created_at DESC";
-        return await conn.QueryAsync<PlatformFile>(sql, new { businessCode, category, tags });
+        return await conn.QueryAsync<PlatformFile>(sql, new { businessCode, appId, category, tags });
     }
 
     public async Task<Guid> InsertAsync(PlatformFile file)
@@ -33,9 +34,9 @@ public class FileRepository : IFileRepository
         await using var conn = _db.CreateConnection();
         return await conn.ExecuteScalarAsync<Guid>("""
             INSERT INTO platform.files
-                (id, business_code, category, original_name, blob_name, content_type, file_size_bytes, uploaded_by, tags, created_at)
+                (id, app_id, business_code, category, original_name, blob_name, content_type, file_size_bytes, uploaded_by, tags, created_at)
             VALUES
-                (@Id::uuid, @BusinessCode, @Category, @OriginalName, @BlobName, @ContentType, @FileSizeBytes, @UploadedBy::uuid, @Tags, @CreatedAt)
+                (@Id::uuid, @AppId::uuid, @BusinessCode, @Category, @OriginalName, @BlobName, @ContentType, @FileSizeBytes, @UploadedBy::uuid, @Tags, @CreatedAt)
             RETURNING id
             """, file);
     }

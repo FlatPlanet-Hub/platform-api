@@ -28,8 +28,12 @@ public class StorageController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Scope files to the calling app — extracted from the JWT app_id claim.
+        // API tokens (project-scoped JWTs) carry app_id; SP user JWTs do not.
+        Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
+
         var tagArray = tags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? [];
-        var request = new UploadFileRequest(businessCode, category, tagArray);
+        var request = new UploadFileRequest(businessCode, category, tagArray, appId);
 
         await using var stream = file.OpenReadStream();
         var result = await _storageService.UploadAsync(
@@ -44,8 +48,11 @@ public class StorageController : ApiControllerBase
         [FromQuery] string? category = null,
         [FromQuery] string? tags = null)
     {
+        // Scope listing to the calling app — same app_id extraction as upload.
+        Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
+
         var tagArray = tags?.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        var result = await _storageService.ListAsync(businessCode, category, tagArray);
+        var result = await _storageService.ListAsync(businessCode, category, tagArray, appId);
         return Ok(result);
     }
 

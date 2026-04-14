@@ -280,7 +280,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.2";
+    public const string LocalFileVersion = "1.3";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -364,8 +364,10 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("### File Storage");
         sb.AppendLine("⚠️  DO NOT build your own file upload endpoint or connect to Azure Blob Storage directly.");
         sb.AppendLine("All file storage is handled centrally by the Platform API — use the endpoints below.");
-        sb.AppendLine("Files are scoped by business code and served via time-limited SAS URLs (60 min).");
-        sb.AppendLine("Always fetch a fresh SAS URL before displaying — never cache or hardcode blob URLs.");
+        sb.AppendLine("Files are automatically scoped to YOUR app — your project can only see its own files.");
+        sb.AppendLine("Scoping is enforced by the app_id in your API token — no extra config needed.");
+        sb.AppendLine("SAS URLs are time-limited (60 min) — always fetch a fresh URL before displaying.");
+        sb.AppendLine("Never cache or hardcode blob URLs.");
         sb.AppendLine();
         sb.AppendLine("Upload a file:");
         sb.AppendLine($"POST {baseUrl}/api/v1/storage/upload");
