@@ -178,12 +178,21 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
         var appAccess = await _securityPlatform.GetUserAppAccessAsync(userId);
+
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+             a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+
         var roleEntry = appAccess.FirstOrDefault(r => r.AppId == project.AppId.Value);
 
-        if (roleEntry is null)
+        if (roleEntry is null && !canViewAll)
             throw new UnauthorizedAccessException("You do not have access to this project.");
 
-        return (project, roleEntry.Permissions);
+        // Platform owner gets full permissions on any project
+        var permissions = roleEntry?.Permissions ?? ["read", "write", "manage_members", "ddl"];
+
+        return (project, permissions);
     }
 
     private static string BuildCodingStandards(Project project)
