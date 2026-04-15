@@ -289,7 +289,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.5";
+    public const string LocalFileVersion = "1.6";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -382,6 +382,10 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("Scoping is enforced by the app_id in your API token — no extra config needed.");
         sb.AppendLine("Signed URLs are time-limited (60 min) — always fetch a fresh URL before displaying.");
         sb.AppendLine("Never cache or hardcode signed URLs.");
+        sb.AppendLine();
+        sb.AppendLine("⚠️  All Platform API JSON responses use camelCase field names (e.g. fileId, sasUrl, sasExpiresAt).");
+        sb.AppendLine("When deserializing with System.Text.Json, always use: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }");
+        sb.AppendLine("Using SnakeCaseLower will cause all fields to silently return null — this has caused production bugs.");
         sb.AppendLine();
         sb.AppendLine("Provision storage bucket for this project (idempotent — safe to call multiple times):");
         sb.AppendLine($"POST {baseUrl}/api/v1/projects/{{projectId}}/storage/provision");

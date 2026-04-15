@@ -1,9 +1,19 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.4.0
+
+| Change | Details |
+|---|---|
+| `POST /api/projects/{id}/provision-azure` | New endpoint — provisions an Azure App Service, sets all app settings, and returns the assigned URL and publish profile XML |
+| `businessCode` now required on List Files | `GET /api/v1/storage/files` — `businessCode` is a required query parameter (matches JWT `business_codes` claim) |
+| `DELETE /api/v1/storage/files/{fileId}` — 400 on blank fileId | Added explicit `400` error response for blank or whitespace `fileId` path segment |
 
 ---
 
@@ -733,6 +743,78 @@ Re-syncs the GitHub Actions CI/CD workflow file and the `AZURE_WEBAPP_PUBLISH_PR
 - The endpoint creates `.github/workflows/ci.yml` (via a two-step helper that pre-creates `.github/.gitkeep` if the directory does not exist) and upserts the `AZURE_WEBAPP_PUBLISH_PROFILE` Actions secret.
 - The GitHub service token must have both `repo` and `workflow` scopes. Without `workflow` scope, writing to `.github/workflows/` will fail with a `403` from GitHub.
 - Calling this endpoint on a project whose GitHub setup is already correct is safe — the workflow file and secret are simply overwritten with the same values.
+
+---
+
+### `POST /api/projects/{id}/provision-azure`
+
+Provisions an Azure App Service for the project, sets all required application settings, and returns connection details including the publish profile XML for use as a GitHub Actions secret.
+
+**Auth required:** Security Platform JWT with `company_id` claim
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+#### Request
+
+```json
+{
+  "appServiceName": "mayari-api",
+  "jwtSecretKey": "your-secret-key",
+  "jwtIssuer": "flatplanet-security",
+  "jwtAudience": "flatplanet-apps",
+  "platformApiBaseUrl": "https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net",
+  "platformApiToken": "eyJhbGci...",
+  "schemaName": "project_myapp"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `appServiceName` | string | Yes | Must be globally unique in Azure. Will become the subdomain of the assigned Azure URL. |
+| `jwtSecretKey` | string | Yes | Secret key for JWT signing in the deployed app. |
+| `jwtIssuer` | string | Yes | JWT issuer claim. |
+| `jwtAudience` | string | Yes | JWT audience claim. |
+| `platformApiBaseUrl` | string | Yes | Base URL for the Platform API the app will call. |
+| `platformApiToken` | string | No | API token injected as `PlatformApi__Token` app setting. |
+| `schemaName` | string | Yes | Postgres schema name for the `ConnectionStrings__Default` app setting. |
+
+#### Success Response — 200
+
+```json
+{
+  "success": true,
+  "data": {
+    "appServiceName": "mayari-api",
+    "appServiceUrl": "https://mayari-api-ckb2hxepheb8a9cq.southeastasia-01.azurewebsites.net",
+    "publishProfileXml": "<publishData>...</publishData>"
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `appServiceName` | string | The Azure App Service name as provisioned. |
+| `appServiceUrl` | string | The full HTTPS URL assigned by Azure (includes region suffix). This is the `DefaultHostName` read from the Azure SDK — never a constructed guess. |
+| `publishProfileXml` | string | Publish profile XML for the `AZURE_WEBAPP_PUBLISH_PROFILE` GitHub Actions secret. Empty string if the fetch failed (non-fatal). |
+
+#### Error Responses
+
+| HTTP | Message | Cause |
+|---|---|---|
+| `400` | — | Missing required field. |
+| `409` | App Service name '...' is already taken in Azure. | The `appServiceName` is already registered in Azure globally. Choose a different name. |
+| `500` | — | Azure ARM API error during provisioning or app settings update. |
+
+#### Notes
+
+- The endpoint calls Azure Resource Manager synchronously (`WaitUntil.Completed`) — the App Service is fully created before the response is returned.
+- App settings (`Jwt__*`, `PlatformApi__*`, `ConnectionStrings__Default`) are written immediately after provisioning.
+- The `appServiceUrl` is read from `DefaultHostName` on the Azure SDK response — it reflects the actual URL Azure assigned, including any random suffix and region. A fallback to `{name}.azurewebsites.net` is used only if Azure returns a blank hostname (rare edge case).
+- If the publish profile fetch fails, provisioning is still considered successful and `publishProfileXml` is returned as an empty string. Use `POST /api/projects/{id}/sync-github-actions` to retry the GitHub Actions setup separately.
 
 ---
 
@@ -1743,7 +1825,7 @@ Returns files accessible to the caller, with optional filters. The result set is
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `businessCode` | string | No | Filter by business code (e.g. `fp`). |
+| `businessCode` | string | **Yes** | Filter by business code (e.g. `fp`). Must match a code in the caller's `business_codes` JWT claim. |
 | `category` | string | No | Filter by category (e.g. `logos`). |
 | `tags` | string | No | Comma-separated tag filter — returns files that have **all** specified tags. |
 
@@ -1838,6 +1920,7 @@ Soft-deletes a file. The database record is marked deleted; the blob in Azure is
 
 | HTTP | Message | Cause |
 |---|---|---|
+| `400` | — | `fileId` path segment is blank or whitespace. |
 | `403` | — | Platform token caller: file is app-scoped, or file belongs to a different user. |
 | `404` | — | App-scoped token caller: `fileId` belongs to a different `app_id`. Also returned for non-existent or already-deleted files. |
 
@@ -1849,6 +1932,8 @@ Soft-deletes a file. The database record is marked deleted; the blob in Azure is
 ---
 
 ## Standard Response Envelope
+
+> **JSON field naming:** All Platform API responses use **camelCase** field names (e.g. `fileId`, `sasUrl`, `createdAt`). This is standard .NET `System.Text.Json` behaviour. When deserializing in a client service, always configure `JsonNamingPolicy.CamelCase`. Using `SnakeCaseLower` will cause every field to silently deserialize as null — no error is thrown.
 
 All endpoints return a consistent envelope. **Null fields are omitted from the serialized response** — do not expect `"data": null` or `"error": null` to be present.
 
