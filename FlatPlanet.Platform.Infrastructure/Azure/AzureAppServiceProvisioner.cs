@@ -90,7 +90,10 @@ public sealed class AzureAppServiceProvisioner(
             throw new Exception($"App Service '{appServiceName}' was created but application settings could not be applied: {ex.Message}");
         }
 
-        var url = $"https://{appServiceName}.azurewebsites.net";
+        // Refresh to get the actual DefaultHostName Azure assigned (includes random suffix + region)
+        var refreshed = await site.GetAsync();
+        var hostName = refreshed.Value.Data.DefaultHostName;
+        var url = $"https://{hostName}";
         logger.LogInformation("Provisioned Azure App Service '{AppServiceName}' at {Url}", appServiceName, url);
 
         // Fetch publish profile XML for GitHub Actions secret
