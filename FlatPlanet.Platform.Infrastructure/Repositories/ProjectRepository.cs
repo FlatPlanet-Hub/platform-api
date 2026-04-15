@@ -76,4 +76,12 @@ public sealed class ProjectRepository : IProjectRepository
             """;
         await conn.ExecuteAsync(sql, project);
     }
+
+    public async Task UpdateBucketNameAsync(Guid projectId, string bucketName)
+    {
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE platform.projects SET bucket_name = @bucketName, updated_at = NOW() WHERE id = @projectId",
+            new { projectId, bucketName });
+    }
 }

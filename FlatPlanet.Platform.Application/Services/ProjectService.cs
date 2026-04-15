@@ -1,4 +1,5 @@
 using FlatPlanet.Platform.Application.DTOs.Project;
+using FlatPlanet.Platform.Application.DTOs.Storage;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
 
@@ -11,19 +12,22 @@ public sealed class ProjectService : IProjectService
     private readonly IGitHubRepoService _gitHubRepo;
     private readonly IDbProxyService _dbProxy;
     private readonly IClaudeConfigService _claudeConfig;
+    private readonly IStorageBucketService _bucketService;
 
     public ProjectService(
         IProjectRepository projectRepo,
         ISecurityPlatformService securityPlatform,
         IGitHubRepoService gitHubRepo,
         IDbProxyService dbProxy,
-        IClaudeConfigService claudeConfig)
+        IClaudeConfigService claudeConfig,
+        IStorageBucketService bucketService)
     {
         _projectRepo = projectRepo;
         _securityPlatform = securityPlatform;
         _gitHubRepo = gitHubRepo;
         _dbProxy = dbProxy;
         _claudeConfig = claudeConfig;
+        _bucketService = bucketService;
     }
 
     public async Task<ProjectResponse> CreateProjectAsync(
@@ -236,6 +240,19 @@ public sealed class ProjectService : IProjectService
         }
 
         return (pushed, skipped, failures);
+    }
+
+    public async Task<StorageProvisionResponse> ProvisionStorageAsync(Guid projectId, Guid userId)
+    {
+        var project = await _projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        var (bucketName, provisionedAt, _) = await _bucketService.EnsureBucketExistsAsync(project.Id, project.AppSlug);
+
+        if (project.BucketName != bucketName)
+            await _projectRepo.UpdateBucketNameAsync(project.Id, bucketName);
+
+        return new StorageProvisionResponse(bucketName, provisionedAt);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

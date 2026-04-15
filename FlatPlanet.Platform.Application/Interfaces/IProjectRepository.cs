@@ -10,4 +10,5 @@ public interface IProjectRepository
     Task<IEnumerable<Project>> GetAllAsync();
     Task<Project> CreateAsync(Project project);
     Task UpdateAsync(Project project);
+    Task UpdateBucketNameAsync(Guid projectId, string bucketName);
 }

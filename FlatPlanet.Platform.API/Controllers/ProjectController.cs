@@ -105,6 +105,15 @@ public sealed class ProjectController : ApiControllerBase
         return OkData(result);
     }
 
+    [HttpPost("~/api/v1/projects/{id:guid}/storage/provision")]
+    public async Task<IActionResult> ProvisionStorage(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+        var result = await _projectService.ProvisionStorageAsync(id, userId.Value);
+        return OkData(result);
+    }
+
     [HttpPost("~/api/admin/sync-claude-md")]
     public async Task<IActionResult> SyncAllClaudeMd()
     {

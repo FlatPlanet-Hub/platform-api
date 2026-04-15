@@ -18,6 +18,7 @@ public sealed class Project
     public bool   AuthEnabled { get; set; } = false;
     public string? AzureAppServiceName { get; set; }
     public string? AzureAppServiceUrl { get; set; }
+    public string? BucketName { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }
