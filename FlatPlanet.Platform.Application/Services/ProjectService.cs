@@ -209,6 +209,35 @@ public sealed class ProjectService : IProjectService
         await _projectRepo.UpdateAsync(project);
     }
 
+    public async Task<(int pushed, int skipped, List<string> failures)> SyncAllClaudeMdAsync(Guid actorId, string actorEmail, string baseUrl)
+    {
+        var projects = await _projectRepo.GetAllAsync();
+        int pushed = 0, skipped = 0;
+        var failures = new List<string>();
+
+        foreach (var project in projects)
+        {
+            if (project.GitHubRepo is null || project.GitHubBranch is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var (_, renderedMarkdown) = await _claudeConfig.RenderAndStoreTokenAsync(project, actorId, actorEmail, baseUrl);
+                await _gitHubRepo.PushClaudeMdAsync(project.GitHubRepo, project.GitHubBranch, renderedMarkdown);
+                pushed++;
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{project.Name} ({project.GitHubRepo}): {ex.Message}");
+            }
+        }
+
+        return (pushed, skipped, failures);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static readonly HashSet<string> ValidProjectTypes = ["frontend", "backend", "database", "fullstack"];

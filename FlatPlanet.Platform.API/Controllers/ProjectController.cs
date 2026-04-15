@@ -104,4 +104,17 @@ public sealed class ProjectController : ApiControllerBase
         var result = await _provisionAzureService.SyncGitHubActionsAsync(id, userId.Value, userEmail);
         return OkData(result);
     }
+
+    [HttpPost("sync-claude-md")]
+    public async Task<IActionResult> SyncAllClaudeMd()
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
+        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        var (pushed, skipped, failures) = await _projectService.SyncAllClaudeMdAsync(userId.Value, userEmail, baseUrl);
+
+        return Ok(new { pushed, skipped, failures });
+    }
 }

@@ -280,7 +280,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.3";
+    public const string LocalFileVersion = "1.4";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -303,30 +303,34 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine();
         sb.AppendLine("---");
         sb.AppendLine();
-        sb.AppendLine("## Session Startup — Read This First");
+        sb.AppendLine("## Mandatory Checks — Do These Regularly, Not Just at Session Start");
         sb.AppendLine();
         sb.AppendLine($"**CLAUDE-local.md version: {LocalFileVersion}**");
         sb.AppendLine();
-        sb.AppendLine("### Step 0 — Version check");
+        sb.AppendLine("These checks must run at session start AND whenever you switch tasks or resume after a break.");
+        sb.AppendLine("STANDARDS.md and CLAUDE-local.md can be updated at any time — not just between sessions.");
+        sb.AppendLine("If a version change is detected mid-session, stop and notify the user before continuing.");
+        sb.AppendLine();
+        sb.AppendLine("### Step 0 — Version check (CLAUDE-local.md)");
         sb.AppendLine($"This file is version **{LocalFileVersion}**.");
-        sb.AppendLine("If the current version does not match the latest (check: `<!-- CLAUDE_LOCAL_VERSION -->` comment at the top),");
-        sb.AppendLine("tell the user:");
+        sb.AppendLine("Check the `<!-- CLAUDE_LOCAL_VERSION -->` comment at the top of this file.");
+        sb.AppendLine("If it does not match the latest version in STANDARDS.md, tell the user:");
         sb.AppendLine($"  ⚠️ Your CLAUDE-local.md is outdated (you have v{LocalFileVersion}).");
         sb.AppendLine("  Please regenerate it from the FlatPlanet Hub to get the latest template.");
         sb.AppendLine($"  POST {baseUrl}/api/projects/{pid}/claude-config/regenerate");
         sb.AppendLine();
         sb.AppendLine("### Step 1 — Check CLAUDE.md for updates");
-        sb.AppendLine("At the start of every session, check if CLAUDE.md in the repo is up to date:");
+        sb.AppendLine("Check regularly whether CLAUDE.md in the repo has been updated:");
         sb.AppendLine("  git fetch origin");
         sb.AppendLine("  git diff HEAD origin/main -- CLAUDE.md");
-        sb.AppendLine("If there are changes, pull them before starting work:");
+        sb.AppendLine("If there are changes, pull them before continuing any work:");
         sb.AppendLine("  git pull origin main");
         sb.AppendLine();
         sb.AppendLine("### Step 2 — Check FlatPlanet Standards for updates");
-        sb.AppendLine("Fetch the latest STANDARDS.md at the start of any session:");
+        sb.AppendLine("Fetch the latest STANDARDS.md regularly — not just at session start:");
         sb.AppendLine("  https://raw.githubusercontent.com/FlatPlanet-Hub/FLATPLANET-STANDARDS/main/FLATPLANET-STANDARDS/STANDARDS.md");
         sb.AppendLine("Compare the version number at the top against the version you last read.");
-        sb.AppendLine("If it has changed, read the updated file before writing any code.");
+        sb.AppendLine("If it has changed, tell the user immediately and read the full updated file before writing any code.");
         sb.AppendLine();
         sb.AppendLine("### Step 3 — Read the conversation log");
         sb.AppendLine("Before doing anything else, read `CONVERSATION-LOG.md` in the project root.");
