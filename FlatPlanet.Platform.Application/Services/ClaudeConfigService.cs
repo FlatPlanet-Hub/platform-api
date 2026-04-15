@@ -406,11 +406,15 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("Returns: 204 No Content");
         sb.AppendLine();
         sb.AppendLine("### Business Membership");
-        sb.AppendLine("The JWT contains a business_codes[] claim (e.g. [\"fp\"]) — use this to filter content per business.");
-        sb.AppendLine("Do NOT hardcode business IDs — always use the code from the JWT claim.");
+        sb.AppendLine("The JWT contains two parallel claims for business membership:");
+        sb.AppendLine("  business_codes[] — short string codes (e.g. [\"fp\"]) — use for display and filtering");
+        sb.AppendLine("  business_ids[]   — UUID strings (e.g. [\"3fa85f64-...\"])  — use for DB foreign keys");
+        sb.AppendLine("Both arrays are ordered identically — index 0 in business_codes matches index 0 in business_ids.");
+        sb.AppendLine("Do NOT hardcode business codes or IDs — always read from the JWT claims.");
         sb.AppendLine();
-        sb.AppendLine("Read business_codes from the decoded JWT:");
+        sb.AppendLine("Read from the decoded JWT:");
         sb.AppendLine("  const codes = jwt.business_codes; // [\"fp\"]");
+        sb.AppendLine("  const ids   = jwt.business_ids;   // [\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"]");
         sb.AppendLine("  const isFlatPlanet = codes.includes(\"fp\");");
         sb.AppendLine();
         sb.AppendLine("### Full API Reference");
