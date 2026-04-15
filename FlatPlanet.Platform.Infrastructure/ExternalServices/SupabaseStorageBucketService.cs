@@ -22,14 +22,13 @@ public sealed class SupabaseStorageBucketService : IStorageBucketService
     public static string BuildBucketName(Guid projectId, string? appSlug)
     {
         if (string.IsNullOrWhiteSpace(appSlug))
-            return $"proj-{projectId:N}";  // fallback: proj-{uuid without hyphens}
+            return $"proj-{projectId:N}";
 
-        // Lowercase, replace non-alphanumeric runs with hyphens, strip edges, max 40 chars for slug part
         var sanitised = System.Text.RegularExpressions.Regex
             .Replace(appSlug.ToLowerInvariant(), @"[^a-z0-9]+", "-")
             .Trim('-');
-        sanitised = sanitised[..Math.Min(40, sanitised.Length)];
-        return $"proj-{sanitised}";
+        sanitised = sanitised[..Math.Min(25, sanitised.Length)].TrimEnd('-');
+        return $"proj-{sanitised}-{projectId:N}";
     }
 
     public async Task<(string BucketName, DateTime ProvisionedAt, bool AlreadyExisted)> EnsureBucketExistsAsync(

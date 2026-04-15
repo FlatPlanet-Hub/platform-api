@@ -125,7 +125,9 @@ public sealed class SupabaseFileStorageService : IFileStorageService
             {
                 if (bucketName is null)
                 {
-                    _logger.LogWarning("Skipping file {FileId}: project has no storage bucket provisioned.", f.Id);
+                    _logger.LogWarning(
+                        "File {FileId} skipped in list: project with app_id {AppId} has no storage bucket provisioned.",
+                        f.Id, group.Key);
                     continue;
                 }
 
@@ -152,9 +154,10 @@ public sealed class SupabaseFileStorageService : IFileStorageService
         await _fileRepo.SoftDeleteAsync(fileId, DateTime.UtcNow);
 
         // Then delete from Supabase (non-fatal if blob delete fails)
+        string? bucketName = null;
         try
         {
-            var bucketName = await GetBucketForFileAsync(file);
+            bucketName = await GetBucketForFileAsync(file);
             var deletePayload = new { prefixes = new[] { file.BlobName } };
             await _http.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"object/{bucketName}")
             {
@@ -163,7 +166,9 @@ public sealed class SupabaseFileStorageService : IFileStorageService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete blob for file {FileId} from Supabase Storage. DB record is soft-deleted.", fileId);
+            _logger.LogError(ex,
+                "Failed to delete blob {BlobName} from bucket {BucketName} for file {FileId}. DB record is soft-deleted — blob is orphaned.",
+                file.BlobName, bucketName, fileId);
         }
     }
 

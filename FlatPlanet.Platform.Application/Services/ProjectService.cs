@@ -247,6 +247,12 @@ public sealed class ProjectService : IProjectService
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException($"Project {projectId} not found.");
 
+        if (project.AppSlug is not null)
+        {
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "manage_members");
+            if (!allowed) throw new UnauthorizedAccessException("You do not have permission to provision storage for this project.");
+        }
+
         var (bucketName, provisionedAt, _) = await _bucketService.EnsureBucketExistsAsync(project.Id, project.AppSlug);
 
         if (project.BucketName != bucketName)
