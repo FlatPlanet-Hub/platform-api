@@ -105,7 +105,7 @@ public sealed class ProjectController : ApiControllerBase
         return OkData(result);
     }
 
-    [HttpPost("sync-claude-md")]
+    [HttpPost("~/api/admin/sync-claude-md")]
     public async Task<IActionResult> SyncAllClaudeMd()
     {
         var userId = GetUserId();
