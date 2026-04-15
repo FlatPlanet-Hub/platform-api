@@ -50,3 +50,6 @@ desktop.ini
 
 ## VS Code
 .vscode/
+
+# FlatPlanet workspace files — contain live tokens
+CLAUDE-local.md

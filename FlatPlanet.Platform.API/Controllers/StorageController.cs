@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using FlatPlanet.Platform.Application.DTOs.Storage;
 using FlatPlanet.Platform.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -45,13 +46,18 @@ public class StorageController : ApiControllerBase
     }
 
     [HttpGet("files")]
+    [ProducesResponseType(typeof(IEnumerable<FileDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> List(
-        [FromQuery] string businessCode,
+        [FromQuery][Required] string businessCode,
         [FromQuery] string? category = null,
         [FromQuery] string? tags = null)
     {
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(businessCode))
+            return BadRequest(new { error = "businessCode is required." });
 
         // Scope listing to the calling app — same app_id extraction as upload.
         Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
@@ -74,6 +80,8 @@ public class StorageController : ApiControllerBase
     }
 
     [HttpDelete("files/{fileId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid fileId)
     {
         var userId = GetUserId();
@@ -82,6 +90,6 @@ public class StorageController : ApiControllerBase
         Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
 
         await _storageService.DeleteAsync(fileId, userId.Value, appId);
-        return NoContent();
+        return Ok(new { success = true, message = "File deleted." });
     }
 }

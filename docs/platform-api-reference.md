@@ -1837,22 +1837,24 @@ GET /api/v1/storage/files?businessCode=fp&category=logos&tags=test
 
 #### Success Response — 200
 
+Returns a raw JSON array (no envelope wrapper):
+
 ```json
-{
-  "success": true,
-  "data": [
-    {
-      "fileId": "7ea2a19e-...",
-      "businessCode": "fp",
-      "category": "logos",
-      "originalName": "logo.png",
-      "contentType": "image/png",
-      "fileSizeBytes": 48210,
-      "tags": ["logo", "primary"],
-      "createdAt": "2026-04-10T01:13:25Z"
-    }
-  ]
-}
+[
+  {
+    "fileId": "7ea2a19e-...",
+    "appId": "398996bc-...",
+    "businessCode": "fp",
+    "category": "logos",
+    "originalName": "logo.png",
+    "contentType": "image/png",
+    "fileSizeBytes": 48210,
+    "tags": ["logo", "primary"],
+    "sasUrl": "https://flatplanetassets.blob.core.windows.net/...",
+    "sasExpiresAt": "2026-04-10T02:13:25Z",
+    "createdAt": "2026-04-10T01:13:25Z"
+  }
+]
 ```
 
 #### Scoping behaviour by token type
