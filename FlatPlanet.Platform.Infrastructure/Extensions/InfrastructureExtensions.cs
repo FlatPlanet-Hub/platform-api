@@ -8,7 +8,6 @@ using FlatPlanet.Platform.Infrastructure.Azure;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using FlatPlanet.Platform.Infrastructure.Repositories;
-using FlatPlanet.Platform.Infrastructure.Storage;
 
 namespace FlatPlanet.Platform.Infrastructure.Extensions;
 
@@ -29,7 +28,15 @@ public static class InfrastructureExtensions
         services.Configure<SecurityPlatformSettings>(opts =>
             configuration.GetSection("SecurityPlatform").Bind(opts));
         services.Configure<AzureSettings>(opts => configuration.GetSection("Azure").Bind(opts));
-        services.Configure<StorageSettings>(opts => configuration.GetSection("Storage").Bind(opts));
+        services.Configure<SupabaseStorageSettings>(opts => configuration.GetSection("SupabaseStorage").Bind(opts));
+
+        services.AddHttpClient("SupabaseStorage", (sp, client) =>
+        {
+            var s = sp.GetRequiredService<IOptions<SupabaseStorageSettings>>().Value;
+            client.BaseAddress = new Uri(s.StorageUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {s.ServiceRoleKey}");
+            client.DefaultRequestHeaders.Add("apikey", s.ServiceRoleKey);
+        });
 
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
@@ -76,7 +83,8 @@ public static class InfrastructureExtensions
 
         // File storage
         services.AddScoped<IFileRepository, FileRepository>();
-        services.AddScoped<IFileStorageService, AzureBlobStorageService>();
+        services.AddScoped<IStorageBucketService, SupabaseStorageBucketService>();
+        services.AddScoped<IFileStorageService, SupabaseFileStorageService>();
 
         return services;
     }

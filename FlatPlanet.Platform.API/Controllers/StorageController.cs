@@ -32,12 +32,14 @@ public class StorageController : ApiControllerBase
         // API tokens (project-scoped JWTs) carry app_id; SP user JWTs do not.
         Guid? appId = Guid.TryParse(User.FindFirst("app_id")?.Value, out var aid) ? aid : null;
 
+        if (string.IsNullOrWhiteSpace(category)) category = "general";
+
         var tagArray = tags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? [];
         var request = new UploadFileRequest(businessCode, category, tagArray, appId);
 
         await using var stream = file.OpenReadStream();
         var result = await _storageService.UploadAsync(
-            stream, file.FileName, file.ContentType, request, userId.Value);
+            stream, file.FileName, file.ContentType, file.Length, request, userId.Value);
 
         return Ok(result);
     }

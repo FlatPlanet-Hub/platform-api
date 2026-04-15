@@ -13,9 +13,10 @@ public sealed class ProjectServiceTests
     private readonly Mock<IGitHubRepoService> _gitHubRepo = new();
     private readonly Mock<IDbProxyService> _dbProxy = new();
     private readonly Mock<IClaudeConfigService> _claudeConfig = new();
+    private readonly Mock<IStorageBucketService> _bucketService = new();
 
     private ProjectService CreateSut() =>
-        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _claudeConfig.Object);
+        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _claudeConfig.Object, _bucketService.Object);
 
     [Fact]
     public async Task CreateProject_ShouldProvisionSchema_AndRegisterApp()
