@@ -289,7 +289,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.6";
+    public const string LocalFileVersion = "1.7";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -397,9 +397,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("Fields: file (binary), businessCode (e.g. \"fp\"), category (e.g. \"logos\"), tags (comma-separated, optional)");
         sb.AppendLine("Returns: { fileId, sasUrl, sasExpiresAt, businessCode, category, originalName, fileSizeBytes, tags }");
         sb.AppendLine();
-        sb.AppendLine("List files:");
+        sb.AppendLine("List files (businessCode is REQUIRED):");
         sb.AppendLine($"GET {baseUrl}/api/v1/storage/files?businessCode=fp&category=logos&tags=primary");
-        sb.AppendLine("Returns: array of file objects each with a fresh signed URL");
+        sb.AppendLine("Returns: { success: true, data: [ { fileId, businessCode, category, originalName, contentType, fileSizeBytes, tags, sasUrl, sasExpiresAt, createdAt } ] }");
         sb.AppendLine();
         sb.AppendLine("Get a fresh signed URL for an existing file:");
         sb.AppendLine($"GET {baseUrl}/api/v1/storage/files/{{fileId}}/url");
@@ -407,19 +407,19 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine();
         sb.AppendLine("Delete a file:");
         sb.AppendLine($"DELETE {baseUrl}/api/v1/storage/files/{{fileId}}");
-        sb.AppendLine("Returns: 204 No Content");
+        sb.AppendLine("Returns: 200 { success: true, message: \"File deleted.\" }");
         sb.AppendLine();
         sb.AppendLine("### Business Membership");
         sb.AppendLine("The JWT contains two parallel claims for business membership:");
-        sb.AppendLine("  business_codes[] — short string codes (e.g. [\"fp\"]) — use for display and filtering");
-        sb.AppendLine("  business_ids[]   — UUID strings (e.g. [\"3fa85f64-...\"])  — use for DB foreign keys");
-        sb.AppendLine("Both arrays are ordered identically — index 0 in business_codes matches index 0 in business_ids.");
+        sb.AppendLine("  business_codes — short code(s) e.g. \"fp\" or [\"fp\",\"acme\"] — use for display and filtering");
+        sb.AppendLine("  business_ids   — UUID(s) e.g. \"3fa85f64-...\" or [\"3fa85f64-...\"] — use for DB foreign keys");
+        sb.AppendLine("Both are ordered identically — index 0 in business_codes matches index 0 in business_ids.");
         sb.AppendLine("Do NOT hardcode business codes or IDs — always read from the JWT claims.");
         sb.AppendLine();
-        sb.AppendLine("Read from the decoded JWT:");
-        sb.AppendLine("  const codes = jwt.business_codes; // [\"fp\"]");
-        sb.AppendLine("  const ids   = jwt.business_ids;   // [\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"]");
-        sb.AppendLine("  const isFlatPlanet = codes.includes(\"fp\");");
+        sb.AppendLine("⚠️  IMPORTANT: Single-membership users get a plain string, not an array. Always normalize:");
+        sb.AppendLine("  const codes = [].concat(jwt.business_codes ?? []);");
+        sb.AppendLine("  const ids   = [].concat(jwt.business_ids   ?? []);");
+        sb.AppendLine("  const isFlatPlanet = codes.includes(\"fp\");");;
         sb.AppendLine();
         sb.AppendLine("### Full API Reference");
         sb.AppendLine("For complete endpoint docs, request/response schemas, and error codes:");
