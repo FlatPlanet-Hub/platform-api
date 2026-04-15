@@ -194,6 +194,7 @@ public sealed class DbProxyService : IDbProxyService
             JsonValueKind.True    => true,
             JsonValueKind.False   => false,
             JsonValueKind.Null    => null,
+            JsonValueKind.Array   => el.EnumerateArray().Select(UnwrapJsonElement).ToArray(),
             _                     => el.ToString()
         };
 
