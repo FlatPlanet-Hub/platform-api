@@ -1,286 +1,339 @@
-# FlatPlanet Platform API — Claude Code Context
+<!-- ⚠️  DO NOT COMMIT THIS FILE ⚠️  -->
+<!-- This file contains a live API token scoped to your project database. -->
+<!-- Add CLAUDE-local.md to your .gitignore immediately if not already done. -->
+<!-- Regenerate from the FlatPlanet Hub if this token is ever exposed.      -->
 
-## What This Is
+<!-- CLAUDE_LOCAL_VERSION: 1.4 -->
+<!-- Generated: 2026-04-15 -->
 
-A .NET 10 backend API (HubApi) that acts as a secure proxy for Supabase (PostgreSQL) and GitHub.
-It manages projects, project members, Claude Code API token generation, and database migrations
-for the FlatPlanet Hub platform.
-
-**HubApi does NOT handle authentication.** Identity and access management is owned by the
-standalone `flatplanet-security-platform` service. HubApi validates Security Platform JWTs
-and delegates all role/permission checks to it via HTTP.
-
----
-
-## Solution Structure
-
-```
-FlatPlanet.Platform.API/           # Presentation — controllers, middleware, filters
-FlatPlanet.Platform.Application/   # Business logic — services, interfaces, DTOs
-FlatPlanet.Platform.Domain/        # Entities, enums, value objects (no dependencies)
-FlatPlanet.Platform.Infrastructure/# Repositories, external services, config
-FlatPlanet.Platform.Tests/         # xUnit unit tests
-db/migrations/                     # SQL migration files (run manually against Supabase)
-Features/                          # Feature specs — read these before implementing anything
-```
+> **⚠️ LOCAL FILE — DO NOT COMMIT**
+> This file is git-ignored for a reason. It contains a **live API token** tied to your project's database.
+> If you accidentally commit this file, go to the FlatPlanet Hub immediately and click **Regenerate** to revoke the token.
+> Add this entry to your `.gitignore`: `CLAUDE-local.md`
 
 ---
 
-## Architecture Rules
+## Mandatory Checks — Do These Regularly, Not Just at Session Start
 
-**Layer flow:** Controller → Application Service → Domain → Infrastructure
+**CLAUDE-local.md version: 1.4**
 
-- No business logic in controllers — controllers only parse input, call a service, return a response
-- No direct DB access from the API layer
-- Do not skip layers
-- Dependencies are one-directional — outer layers depend on inner layers, never the reverse
-- All cross-layer contracts defined as interfaces in Application layer
+These checks must run at session start AND whenever you switch tasks or resume after a break.
+STANDARDS.md and CLAUDE-local.md can be updated at any time — not just between sessions.
+If a version change is detected mid-session, stop and notify the user before continuing.
 
-**Repository rules:**
-- One repository interface per aggregate (`IProjectRepository`, `IApiTokenRepository`)
-- No generic repositories
-- Only simple domain queries and persistence methods
+### Step 0 — Version check (CLAUDE-local.md)
+This file is version **1.4**.
+Check the `<!-- CLAUDE_LOCAL_VERSION -->` comment at the top of this file.
+If it does not match the latest version in STANDARDS.md, tell the user:
+  ⚠️ Your CLAUDE-local.md is outdated (you have v1.4).
+  Please regenerate it from the FlatPlanet Hub to get the latest template.
+  POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/claude-config/regenerate
 
----
+### Step 1 — Check CLAUDE.md for updates
+Check regularly whether CLAUDE.md in the repo has been updated:
+  git fetch origin
+  git diff HEAD origin/main -- CLAUDE.md
+If there are changes, pull them before continuing any work:
+  git pull origin main
 
-## Tech Stack
+### Step 2 — Check FlatPlanet Standards for updates
+Fetch the latest STANDARDS.md regularly — not just at session start:
+  https://raw.githubusercontent.com/FlatPlanet-Hub/FLATPLANET-STANDARDS/main/FLATPLANET-STANDARDS/STANDARDS.md
+Compare the version number at the top against the version you last read.
+If it has changed, tell the user immediately and read the full updated file before writing any code.
 
-- .NET 10 + ASP.NET Core Web API
-- PostgreSQL via Supabase (connection pooler port 6543)
-- Dapper for all DB access — no EF Core
-- Octokit.net for GitHub API (service token only — no per-user OAuth)
-- JWT Bearer authentication — validates tokens issued by Security Platform
-- xUnit + Moq for tests
-
----
-
-## Database
-
-HubApi owns only two tables:
-
-| Table | Purpose |
-|---|---|
-| `platform.projects` | Project registry — name, schema, GitHub repo, app_slug, app_id, tech_stack, owner |
-| `platform.api_tokens` | Claude Code API tokens — scoped to a project, stored as SHA-256 hash |
-
-Everything else (users, roles, sessions, audit, OAuth) lives in the Security Platform.
-
-- Schema prefix: `platform.` for HubApi tables
-- Project data schemas: `project_{slug}` (isolated per project)
-- All queries use parameterized Dapper — never string-concatenated SQL
-- Migrations live in `db/migrations/` — run manually, the API does not auto-migrate
-- Connection via `IDbConnectionFactory` — never instantiate `NpgsqlConnection` directly
-- Schema names validated via `SqlValidationHelper.IsValidSchemaName` before use
+### Step 3 — Read the conversation log
+Before doing anything else, read `CONVERSATION-LOG.md` in the project root.
+This is Claude's memory across sessions — current state, decisions made, open issues, what to do next.
+If the file does not exist yet, create it before closing the session.
+At the end of every session, append a new entry to `CONVERSATION-LOG.md` before committing.
 
 ---
 
-## Authentication Model
+# Project Context
 
-HubApi accepts two token types, both validated against the same JWT secret:
+## Project
+- **Name**: FlatPlanet Platform API
+- **Description**: HubApi backend
+- **Project ID**: d05cd2b3-8313-458e-8d3d-0cca0775e678
+- **Schema**: project_platform_api
+- **Tech Stack**: .NET 10 / C#
+- **Project Type**: fullstack
+- **Auth Enabled**: False
 
-| Token | Issued by | Used for | `token_type` claim | Lifetime |
-|---|---|---|---|---|
-| Security Platform JWT | flatplanet-security-platform | Frontend ↔ HubApi | none | 60 min |
-| HubApi API token | HubApi (`/api/projects/{id}/claude-config`) | Claude Code ↔ DB proxy | `api_token` | 30 days |
+## Platform API
 
-`ProjectScopeMiddleware` activates project-scope extraction **only** when BOTH:
-1. The route contains a `{projectId}` segment
-2. The token has `token_type = "api_token"`
+Base URL: https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net
+Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkYzg4Nzg2YS0wYjM4LTQzYmItOGRjMy03ZWMzNmYwNTBlYzkiLCJuYW1lIjoiY2hyaXMubW9yaWFydHlAZmxhdHBsYW5ldC5jb20iLCJlbWFpbCI6ImNocmlzLm1vcmlhcnR5QGZsYXRwbGFuZXQuY29tIiwiYXBwX3NsdWciOiJwbGF0Zm9ybS1hcGkiLCJwZXJtaXNzaW9ucyI6Im1hbmFnZV9tZW1iZXJzLHJlYWQsd3JpdGUiLCJ0b2tlbl90eXBlIjoiYXBpX3Rva2VuIiwianRpIjoiNGQzOTA2MTEtODE5Mi00MGM5LTgyMGEtZjQ0YTRmMzAzMDJiIiwiYXBwX2lkIjoiNTE0ODg4NTQtZDUxOC00OGM0LTgyZWUtNWE4OTQ3Njg0ZGJlIiwic2NoZW1hIjoicHJvamVjdF9wbGF0Zm9ybV9hcGkiLCJleHAiOjE3Nzg4MDcxMTksImlzcyI6ImZsYXRwbGFuZXQtc2VjdXJpdHkiLCJhdWQiOiJmbGF0cGxhbmV0LWFwcHMifQ.lMWRyjfXXRa9H8rs4qFp3H3-3mzcOvxewG_fHHDljI8
+Token Expires: 2026-05-15
 
-All other requests — including Security Platform JWTs (no `token_type` claim) — pass through unconditionally.
+All API requests require this header:
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkYzg4Nzg2YS0wYjM4LTQzYmItOGRjMy03ZWMzNmYwNTBlYzkiLCJuYW1lIjoiY2hyaXMubW9yaWFydHlAZmxhdHBsYW5ldC5jb20iLCJlbWFpbCI6ImNocmlzLm1vcmlhcnR5QGZsYXRwbGFuZXQuY29tIiwiYXBwX3NsdWciOiJwbGF0Zm9ybS1hcGkiLCJwZXJtaXNzaW9ucyI6Im1hbmFnZV9tZW1iZXJzLHJlYWQsd3JpdGUiLCJ0b2tlbl90eXBlIjoiYXBpX3Rva2VuIiwianRpIjoiNGQzOTA2MTEtODE5Mi00MGM5LTgyMGEtZjQ0YTRmMzAzMDJiIiwiYXBwX2lkIjoiNTE0ODg4NTQtZDUxOC00OGM0LTgyZWUtNWE4OTQ3Njg0ZGJlIiwic2NoZW1hIjoicHJvamVjdF9wbGF0Zm9ybV9hcGkiLCJleHAiOjE3Nzg4MDcxMTksImlzcyI6ImZsYXRwbGFuZXQtc2VjdXJpdHkiLCJhdWQiOiJmbGF0cGxhbmV0LWFwcHMifQ.lMWRyjfXXRa9H8rs4qFp3H3-3mzcOvxewG_fHHDljI8
 
-**JWT config (must match Security Platform):**
+## Platform API Capabilities
+
+The Platform API provides shared services for all FlatPlanet projects.
+Use the token above as Bearer on all calls to these endpoints.
+
+### File Storage
+⚠️  DO NOT build your own file upload endpoint or connect to Azure Blob Storage directly.
+All file storage is handled centrally by the Platform API — use the endpoints below.
+Files are automatically scoped to YOUR app — your project can only see its own files.
+Scoping is enforced by the app_id in your API token — no extra config needed.
+SAS URLs are time-limited (60 min) — always fetch a fresh URL before displaying.
+Never cache or hardcode blob URLs.
+
+Upload a file:
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/v1/storage/upload
+Content-Type: multipart/form-data
+Fields: file (binary), businessCode (e.g. "fp"), category (e.g. "logos"), tags (comma-separated, optional)
+Returns: { fileId, sasUrl, sasExpiresAt, businessCode, category, originalName, fileSizeBytes, tags }
+
+List files:
+GET https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/v1/storage/files?businessCode=fp&category=logos&tags=primary
+Returns: array of file objects each with a fresh sasUrl
+
+Get a fresh SAS URL for an existing file:
+GET https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/v1/storage/files/{fileId}/url
+Returns: { sasUrl, expiresAt }
+
+Delete a file:
+DELETE https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/v1/storage/files/{fileId}
+Returns: 204 No Content
+
+### Business Membership
+The JWT contains a business_codes[] claim (e.g. ["fp"]) — use this to filter content per business.
+Do NOT hardcode business IDs — always use the code from the JWT claim.
+
+Read business_codes from the decoded JWT:
+  const codes = jwt.business_codes; // ["fp"]
+  const isFlatPlanet = codes.includes("fp");
+
+### Full API Reference
+For complete endpoint docs, request/response schemas, and error codes:
+  Platform API:      https://github.com/FlatPlanet-Hub/platform-api/blob/main/docs/platform-api-reference.md
+  Security Platform: https://github.com/FlatPlanet-Hub/flatplanet-security-platform/blob/main/docs/security-api-reference.md
+
+## Working With the Database
+
+### Step 0 — Check the naming dictionary BEFORE naming anything
+
+> ⚠️ Do NOT read DATA_DICTIONARY.md from the local filesystem — it may be stale.
+> Always query the live API below for accurate schema context.
+
+Before creating any table, column, variable, or function, query the data dictionary
+to find the approved standard name for the concept you are working with.
+
+Search by concept:
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/query/read
 ```json
-"Jwt": {
-  "Issuer": "flatplanet-security",
-  "Audience": "flatplanet-apps",
-  "SecretKey": "MUST_MATCH_SECURITY_PLATFORM_SECRET"
+{
+  "sql": "SELECT field_name, data_type, format, description, example, entity FROM data_dictionary WHERE field_name ILIKE @search OR description ILIKE @search OR entity ILIKE @search ORDER BY field_name LIMIT 20",
+  "parameters": { "search": "%<concept>%" }
 }
 ```
 
-**JWT claims issued by the Security Platform:**
-- `sub` — user ID (UUID)
-- `email` — user email
-- `full_name` — user display name (NOT `name`)
-- `company_id` — company UUID
-- `session_id` — session UUID
-- roles via `ClaimTypes.Role`
-
----
-
-## Security Platform Integration
-
-HubApi calls the Security Platform for all identity and access operations.
-
+If the standard name exists — use it exactly as recorded in `field_name`.
+If no matching entry exists, create one before proceeding:
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/query/write
 ```json
-"SecurityPlatform": {
-  "BaseUrl": "https://<sp-host>",
-  "ServiceToken": "<service-to-service-token>"
+{
+  "sql": "INSERT INTO data_dictionary (field_name, data_type, format, description, example, entity, category, is_required, source) VALUES (@field_name, @data_type, @format, @description, @example, @entity, @category, @is_required, 'project') ON CONFLICT DO NOTHING",
+  "parameters": {
+    "field_name": "snake_case_name",
+    "data_type": "text|uuid|timestamptz|boolean|numeric|...",
+    "format": null,
+    "description": "What this field represents",
+    "example": "example_value",
+    "entity": "the table or entity this belongs to",
+    "category": "field",
+    "is_required": false
+  }
 }
 ```
 
-Interface: `ISecurityPlatformService` (`Application/Interfaces/`)
-Implementation: `SecurityPlatformService` (`Infrastructure/ExternalServices/`)
+### Step 1 — Read the project schema
+GET https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/schema/full
 
-Two HTTP clients are used internally:
+Returns all tables, columns, types, and foreign key relationships in this project.
 
-| Client | Auth | Used for |
-|---|---|---|
-| `SecurityPlatform` | Service token | All admin calls (register app, grant role, list members, get user) |
-| `SecurityPlatformUser` | Forwarded request JWT | `AuthorizeAsync` only — SP derives userId from the bearer token |
-
-`SecurityPlatformService` injects `IHttpContextAccessor` to extract the caller's JWT
-for authorization calls. This means `AuthorizeAsync` checks the actual requesting user's
-permissions, not the service account's.
-
-Key SP calls made by HubApi:
-
-| When | SP Endpoint | Purpose |
-|---|---|---|
-| `POST /api/projects` | `POST /api/v1/apps` | Register project as an app, get appId |
-| `POST /api/projects` | `POST /api/v1/apps/{appId}/permissions` × 5 | Create project permissions |
-| `POST /api/projects` | `POST /api/v1/apps/{appId}/roles` × 3 | Create owner/developer/viewer roles |
-| `POST /api/projects` | `POST /api/v1/apps/{appId}/roles/{id}/permissions` × 9 | Assign permissions to roles |
-| `POST /api/projects` | `POST /api/v1/apps/{appId}/users` | Grant creator owner role |
-| `GET /api/projects` | `GET /api/v1/users/{userId}` → `appAccess[]` | Get user's app roles → filter visible projects |
-| Permission check | `POST /api/v1/authorize` | Check read / manage_members / delete_project |
-| Member add | `POST /api/v1/apps/{appId}/users` | Grant role (looks up roleId by name first) |
-| Member update | `PUT /api/v1/apps/{appId}/users/{userId}/role` | Change role (looks up roleId by name first) |
-| Member remove | `DELETE /api/v1/apps/{appId}/users/{userId}` | Revoke role |
-| Member list | `GET /api/v1/apps/{appId}/users` | List all members |
-| User lookup | `GET /api/v1/users/{userId}` | Get fullName + email for member list response |
-
-**Important:** SP's `POST /api/v1/apps/{appId}/users` requires `roleId` (UUID), not a role name.
-`SecurityPlatformService.GrantRoleAsync` resolves this internally by calling
-`GET /api/v1/apps/{appId}/roles` first to look up the UUID by name.
-
----
-
-## GitHub Integration
-
-HubApi uses a **single service token** for all GitHub operations — no per-user OAuth.
-
+### Create a Table
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/migration/create-table
 ```json
-"GitHub": {
-  "ServiceToken": "ghp_...",
-  "OrgName": "FlatPlanet-Hub"
+{
+  "tableName": "table_name",
+  "columns": [
+    { "name": "id", "type": "uuid", "isPrimaryKey": true, "default": "gen_random_uuid()" },
+    { "name": "name", "type": "text", "nullable": false },
+    { "name": "created_at", "type": "timestamptz", "default": "now()" }
+  ],
+  "enableRls": true
 }
 ```
 
-GitHub operations:
-- Seed `DATA_DICTIONARY.md` + `.gitignore` on project creation (fire-and-forget)
-- Sync `DATA_DICTIONARY.md` after every DDL operation (fire-and-forget)
-- Add repo collaborator when a member is invited (only if `GitHubUsername` provided in request)
-- Remove repo collaborator when a member is removed (only if `GitHubUsername` was stored)
-
-Role → GitHub permission mapping: `owner` → `admin`, `developer` → `push`, `viewer` → `pull`
-
-Interface: `IGitHubRepoService` (4 methods only):
-- `SeedProjectFilesAsync(Project project)`
-- `SyncDataDictionaryAsync(Guid projectId, string schema)`
-- `InviteCollaboratorAsync(string repo, string githubUsername, string permission)`
-- `RemoveCollaboratorAsync(string repo, string githubUsername)`
-
----
-
-## API Surface
-
-### Auth
-- `GET /api/auth/me` — returns identity from JWT claims (no DB call)
-
-### Projects
-- `GET /api/projects` — list projects user has access to (via Security Platform)
-- `POST /api/projects` — create project (requires `company_id` claim in JWT)
-- `GET /api/projects/{id}` — get project
-- `PUT /api/projects/{id}` — update project (requires `manage_members` via SP)
-- `DELETE /api/projects/{id}` — deactivate project (requires `delete_project` via SP)
-
-### Project Members
-- `GET /api/projects/{id}/members` — list members (via SP)
-- `POST /api/projects/{id}/members` — add member, body: `{ userId, role, githubUsername? }`
-- `PUT /api/projects/{id}/members/{userId}/role` — change role
-- `DELETE /api/projects/{id}/members/{userId}` — remove member + revoke API tokens
-
-### Claude Config (Security Platform JWT required)
-- `GET /api/projects/{id}/claude-config` — generate CLAUDE.md + 30-day API token
-- `POST /api/projects/{id}/claude-config/regenerate` — revoke + regenerate
-- `DELETE /api/projects/{id}/claude-config` — revoke token
-
-### DB Proxy (HubApi API token required)
-All routes scoped under `/api/projects/{projectId}/`:
-- `GET schema/tables`, `schema/columns`, `schema/relationships`, `schema/full` — requires `read`
-- `POST migration/create-table`, `PUT migration/alter-table`, `DELETE migration/drop-table` — requires `ddl`
-- `POST query/read` — requires `read`
-- `POST query/write` — requires `write`
-
----
-
-## Feature Specs
-
-All features are documented in `Features/`. **Read the relevant spec before implementing or modifying anything in that area.**
-
-| Feature | File |
-|---|---|
-| F1 | Feature 1 - Supabase Proxy API — Secure Database Access |
-| F2 | Feature 2 - GitHub OAuth + JWT Token Issuance |
-| F3 | Feature 3 - Admin User Onboarding & Access Management |
-| F4 | Feature 4 - GitHub Repository Operations via Proxy API |
-| F5 | Feature 5 - CLAUDE.md — Local Project Context File |
-| F6 | Feature 6 - Flat Planet IAM — Centralized Identity & Access Management |
-
----
-
-## Known Limitations
-
-1. **GitHub username not available from Security Platform** — The SP user model has no
-   `GitHubUsername` field. GitHub collaborator management only works at invite time when
-   the frontend explicitly provides `githubUsername` in the request body. Role changes and
-   member removal do not update GitHub repo access. This is a known gap until the SP exposes
-   GitHub identity data.
-
-2. **Legacy projects without `AppSlug`** — Projects created before the SP migration have
-   `AppSlug = null`. All SP auth checks are skipped for these projects (intentional safety
-   net). They must be manually registered with the SP before going to production.
-
-3. **Project setup makes ~19 SP calls on creation** — `SetupProjectRolesAsync` creates
-   permissions and roles sequentially. Acceptable now; flag to SP team for a bulk endpoint.
-
----
-
-## Coding Conventions
-
-- `async`/`await` for all I/O
-- Depend on interfaces, not implementations — always inject via constructor
-- Method length: keep under ~50 lines; extract if growing
-- DTO naming: `CreateXRequest`, `UpdateXRequest`, `XResponse`, `XDto`
-- Domain entity naming: pure noun (`Project`) — no `Entity` suffix unless conflict
-- Tests: `MethodName_ShouldDoX_WhenCondition` naming, Arrange/Act/Assert layout
-- Commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
-
----
-
-## Running the Project
-
-```bash
-dotnet build FlatPlanet.Platform.slnx
-dotnet run --project FlatPlanet.Platform.API
-dotnet test FlatPlanet.Platform.Tests
+### Alter a Table
+PUT https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/migration/alter-table
+```json
+{
+  "tableName": "table_name",
+  "operations": [
+    { "type": "AddColumn", "columnName": "new_col", "dataType": "text" },
+    { "type": "DropColumn", "columnName": "old_col" },
+    { "type": "RenameColumn", "columnName": "old_name", "newColumnName": "new_name" }
+  ]
+}
 ```
 
-API runs on `https://localhost:7xxx` (see `launchSettings.json`).
-Scalar API docs available at `/scalar` in Development.
+### Drop a Table
+DELETE https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/migration/drop-table?table={name}
 
----
+### Read Query
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/query/read
+```json
+{
+  "sql": "SELECT * FROM table_name WHERE column = @param LIMIT @limit",
+  "parameters": { "param": "value", "limit": 50 }
+}
+```
 
-## What NOT to Do
+### Write Query
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/query/write
+```json
+{
+  "sql": "INSERT INTO table_name (col1, col2) VALUES (@val1, @val2)",
+  "parameters": { "val1": "hello", "val2": "world" }
+}
+```
 
-- Do not add business logic to controllers
-- Do not call repositories directly from the API layer
-- Do not concatenate user input into SQL strings
-- Do not store raw tokens or secrets — always hash or encrypt
-- Do not commit `CLAUDE.md` files generated for end users (they are gitignored)
-- Do not use EF Core — this project uses Dapper throughout
-- Do not create a generic `IRepository<T>` — use aggregate-specific repositories
-- Do not handle authentication in HubApi — all identity is owned by the Security Platform
-- Do not use per-user GitHub tokens — all GitHub operations use the service token
-- Do not read the `name` JWT claim — the Security Platform issues `full_name`
+## Rules
+1. ALWAYS check the data dictionary (Step 0) before naming any table, column, variable, or function
+2. ALWAYS read the schema (Step 1) before writing any database-related code
+3. ALWAYS use @paramName syntax in queries — NEVER concatenate values into SQL strings
+4. Use migration endpoints for CREATE TABLE / ALTER TABLE / DROP TABLE — never raw DDL in query endpoints
+5. All database access goes through the API — NEVER connect to the database directly
+6. If an API call fails, check the "success" field and "error" message in the response
+7. If the token has expired, ask the user to regenerate CLAUDE-local.md from the FlatPlanet Hub
+
+## Git Workflow
+
+No GitHub repo linked to this project yet.
+
+1. Work on a feature branch: git checkout -b feature/{feature-name}
+2. Build and test locally before committing
+3. Commit with descriptive messages: feat:, fix:, refactor:, docs:
+4. Push: git push origin feature/{feature-name}
+5. For major features, create a PR to main
+
+## Coding Standards
+
+### Frontend Standards (React / TypeScript)
+- React.js with TypeScript (latest version)
+- Strict TypeScript — no `any`, explicit return types on all functions
+- Component naming: PascalCase, one component per file
+- Hooks: prefix with `use`, keep side effects in useEffect only
+- State management: follow existing pattern in the codebase
+- Folder structure: feature-based (components, hooks, services, types per feature)
+- API calls: always through a service layer — never fetch directly in components
+- Error boundaries: wrap major sections
+- No unused imports, no console.log in production code
+- Deploy target: Netlify
+
+### Backend Standards (.NET 10 / C#)
+- .NET 10 / C# — use latest language features (primary constructors, pattern matching, etc.)
+- Clean Architecture: Controller → Application Service → Domain → Infrastructure
+- SOLID principles enforced
+- Dependency Injection for all services — never instantiate dependencies manually
+- Apply design patterns where appropriate: Strategy, Chain of Responsibility, Factory, Decorator
+- No EF Core — Dapper only, raw SQL via IDbConnectionFactory
+- All async/await — no blocking calls (.Result, .Wait())
+- GlobalExceptionMiddleware handles all errors — never swallow exceptions silently
+- Always run `dotnet build` before committing
+- Deploy target: Azure App Service
+
+### Database Standards (Supabase / PostgreSQL)
+- Supabase / PostgreSQL
+- ALWAYS check the data dictionary before naming anything (Step 0)
+- ALWAYS read the schema before writing DB code (Step 1)
+- All DDL goes through migration endpoints — never raw DDL in query endpoints
+- All queries use @paramName — never concatenate values into SQL
+- snake_case for all table and column names
+- UUID primary keys with gen_random_uuid()
+- Always include created_at TIMESTAMPTZ DEFAULT now()
+- Soft deletes preferred — use is_active boolean over hard deletes
+- Always add indexes on foreign keys and frequently queried columns
+
+- Clean, readable code — add comments only where logic is non-obvious
+- Handle errors gracefully — never swallow exceptions silently
+- Follow naming conventions of the existing codebase
+
+## Project Management
+
+Use these endpoints (with your SP JWT, not the API token) to manage this project:
+
+### Enable Authentication on this project
+PUT https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678
+Header: Authorization: Bearer <SP JWT>
+Body: { "authEnabled": true }
+After enabling: regenerate this file to get the SP auth integration guide injected.
+
+### Regenerate this workspace file
+POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/claude-config/regenerate
+Header: Authorization: Bearer <SP JWT>
+Returns a fresh CLAUDE-local.md with a new token. Ask the user to save the new file.
+
+## FlatPlanet Security Platform (SP)
+
+All FlatPlanet projects use the Security Platform for authentication and authorization.
+NEVER build your own auth system — always use the SP endpoints below.
+
+SP Base URL:  https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net
+App Slug:     platform-api
+App ID:       51488854-d518-48c4-82ee-5a8947684dbe
+JWT Issuer:   flatplanet-security
+JWT Audience: flatplanet-apps
+Auth Status:  DISABLED — enable when ready (see Project Management above)
+
+### Login
+POST https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net/api/v1/auth/login
+Body: { "email": "...", "password": "...", "appSlug": "platform-api" }
+Returns: { accessToken (60 min), refreshToken, expiresIn, user }
+
+### Protect Routes
+All protected routes require:
+  Authorization: Bearer <accessToken>
+On 401 → try refresh. If refresh fails → redirect to login.
+
+### Check Permission
+POST https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net/api/v1/authorize
+Body: { "appSlug": "platform-api", "resourceIdentifier": "/your-route", "requiredPermission": "read" }
+Returns: { allowed: true/false } — HTTP 200 either way. allowed: false → show no-access page.
+
+### Refresh Token
+POST https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net/api/v1/auth/refresh
+Body: { "refreshToken": "..." }
+Single-use — store the new token immediately. On 401 → redirect to login.
+
+### Logout
+POST https://flatplanet-security-api-d5cgdyhmgxcebyak.southeastasia-01.azurewebsites.net/api/v1/auth/logout
+Revokes all refresh tokens. Clear both tokens client-side and redirect to login.
+
+## Azure Deployment
+
+Status: NOT PROVISIONED
+
+This project has no Azure App Service yet.
+
+### Deployment type guidance
+All FlatPlanet backend projects deploy to **Azure App Service** — not Azure Functions.
+If the current codebase is structured as Azure Functions, recommend converting it
+to a standard ASP.NET Core Web API before provisioning.
+Azure Functions is only appropriate for isolated event-driven/scheduled workloads,
+not for full REST APIs serving the frontend.
+
+To provision, tell Claude Code:
+  "provision Azure for this project"
+
+Claude Code will call:
+  POST https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/api/projects/d05cd2b3-8313-458e-8d3d-0cca0775e678/provision-azure
+And update this file automatically once complete.
+
