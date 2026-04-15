@@ -90,9 +90,18 @@ public sealed class AzureAppServiceProvisioner(
             throw new Exception($"App Service '{appServiceName}' was created but application settings could not be applied: {ex.Message}");
         }
 
-        // Refresh to get the actual DefaultHostName Azure assigned (includes random suffix + region)
+        // Refresh to get the actual DefaultHostName Azure assigned (includes random suffix + region).
+        // WaitUntil.Completed guarantees the resource exists, but DefaultHostName may still be null
+        // on the create response in some regions — a fresh GET is more reliable.
         var refreshed = await site.GetAsync();
         var hostName = refreshed.Value.Data.DefaultHostName;
+
+        if (string.IsNullOrWhiteSpace(hostName))
+        {
+            logger.LogWarning("Azure did not return a DefaultHostName for '{AppServiceName}'. Falling back to constructed URL.", appServiceName);
+            hostName = $"{appServiceName}.azurewebsites.net";
+        }
+
         var url = $"https://{hostName}";
         logger.LogInformation("Provisioned Azure App Service '{AppServiceName}' at {Url}", appServiceName, url);
 
