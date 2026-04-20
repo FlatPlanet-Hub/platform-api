@@ -29,6 +29,7 @@ public static class InfrastructureExtensions
             configuration.GetSection("SecurityPlatform").Bind(opts));
         services.Configure<AzureSettings>(opts => configuration.GetSection("Azure").Bind(opts));
         services.Configure<SupabaseStorageSettings>(opts => configuration.GetSection("SupabaseStorage").Bind(opts));
+        services.Configure<DataverseSettings>(opts => configuration.GetSection("Dataverse").Bind(opts));
 
         services.AddHttpClient("SupabaseStorage", (sp, client) =>
         {
@@ -37,6 +38,20 @@ public static class InfrastructureExtensions
             client.DefaultRequestHeaders.Add("Authorization", $"Bearer {s.ServiceRoleKey}");
             client.DefaultRequestHeaders.Add("apikey", s.ServiceRoleKey);
         });
+
+        // Dataverse HTTP clients
+        services.AddHttpClient("Dataverse", (sp, client) =>
+        {
+            var s = sp.GetRequiredService<IOptions<DataverseSettings>>().Value;
+            client.BaseAddress = new Uri(s.ApiBaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Add("OData-MaxVersion", "4.0");
+            client.DefaultRequestHeaders.Add("OData-Version", "4.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.DefaultRequestHeaders.Add("Prefer", "odata.include-annotations=*");
+            // Authorization header is set per-request in DataverseService (token is cached)
+        });
+        services.AddHttpClient("DataverseToken");
+        services.AddMemoryCache();
 
         // Infrastructure
         services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
@@ -85,6 +100,9 @@ public static class InfrastructureExtensions
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IStorageBucketService, SupabaseStorageBucketService>();
         services.AddScoped<IFileStorageService, SupabaseFileStorageService>();
+
+        // Dataverse
+        services.AddScoped<IDataverseService, DataverseService>();
 
         return services;
     }
