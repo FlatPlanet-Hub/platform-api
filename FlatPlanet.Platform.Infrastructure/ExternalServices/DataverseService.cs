@@ -49,7 +49,7 @@ public sealed class DataverseService : IDataverseService
 
     public async Task<IEnumerable<AccountDto>> GetAccountsAsync()
     {
-        const string query = "accounts?$select=fp_name";
+        const string query = "accounts?$select=name";
 
         return await QueryDataverseAsync<AccountDto>(query);
     }
