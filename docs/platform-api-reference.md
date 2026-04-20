@@ -1,9 +1,18 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.4.0
+**Version:** 1.5.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.5.0
+
+| Change | Details |
+|---|---|
+| `GET /api/v1/dataverse/employees` | New endpoint — returns active Round Earth Philippines employees from Dataverse (active + company filter applied server-side) |
+| `GET /api/v1/dataverse/accounts` | New endpoint — returns client accounts from Dataverse |
 
 ---
 
@@ -98,8 +107,9 @@
     - [List Files](#list-files)
     - [Get File URL](#get-file-url)
     - [Delete File](#delete-file)
-12. [Standard Response Envelope](#standard-response-envelope)
-13. [Error Reference](#error-reference)
+12. [Dataverse](#dataverse)
+13. [Standard Response Envelope](#standard-response-envelope)
+14. [Error Reference](#error-reference)
 
 ---
 
@@ -1930,6 +1940,113 @@ Soft-deletes a file. The database record is marked deleted; the blob in Azure is
 
 - Access enforcement mirrors `GET /url` — same DB-level filter applies before the soft-delete executes.
 - App-scoped callers can delete any file belonging to their `app_id`, regardless of who uploaded it.
+
+---
+
+## Dataverse
+
+Proxy endpoints for Microsoft Dataverse data. HubApi fetches an OAuth token from an Azure Function, caches it server-side for 55 minutes, and forwards the query — callers never handle Dataverse credentials.
+
+**Auth required for all:** Bearer — Platform API JWT (Security Platform JWT)
+
+---
+
+### `GET /api/v1/dataverse/employees`
+
+Returns active Round Earth Philippines employees from Dataverse.
+
+#### Request
+
+No request body. No query parameters.
+
+#### Success Response — 200
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "Edwin Calamlam Santos",
+      "employmentDate": "2019-11-11T00:00:00Z",
+      "separationDate": null,
+      "employmentStatus": "Regular",
+      "clientOpsLead": "Gerard Voltaire Alcantara Bohol",
+      "client": "Equiem Services Pty Ltd"
+    }
+  ]
+}
+```
+
+#### Response Fields
+
+| Field | Type | Nullable | Description |
+|---|---|---|---|
+| `name` | string | No | Employee full name |
+| `employmentDate` | datetime | No | ISO 8601 date the employee started |
+| `separationDate` | datetime | Yes | ISO 8601 date the employee left; `null` for current employees |
+| `employmentStatus` | string | No | One of: `Regular`, `Probationary`, `Contractual`, `Consultant Non Payroll`, `Part-time`, `Project Based` |
+| `clientOpsLead` | string | Yes | Display name of the client ops lead; `null` if not set |
+| `client` | string | Yes | Display name of the client account; `null` if not set |
+
+#### Error Responses
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `500` | Dataverse unreachable or Azure Function token fetch failed |
+
+#### Notes
+
+- Server-side filters applied automatically: `statecode = 0` (active only) + company scoped to Round Earth Philippines, Inc. Consuming apps do **not** need to filter by active status or company.
+- As of last verification: 254 records returned.
+
+---
+
+### `GET /api/v1/dataverse/accounts`
+
+Returns client accounts from Dataverse.
+
+#### Request
+
+No request body. No query parameters.
+
+#### Success Response — 200
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "WebSan Solutions Inc."
+    }
+  ]
+}
+```
+
+#### Response Fields
+
+| Field | Type | Nullable | Description |
+|---|---|---|---|
+| `name` | string | No | Account display name |
+
+#### Error Responses
+
+| Code | Reason |
+|---|---|
+| `401` | Missing or invalid JWT |
+| `500` | Dataverse unreachable or Azure Function token fetch failed |
+
+#### Notes
+
+- No server-side filters — all accounts in Dataverse are returned.
+- As of last verification: 194 records returned.
+
+---
+
+### Notes — Dataverse Proxy
+
+- **Token caching:** The Azure Function OAuth token is cached server-side for 55 minutes. Repeated calls within that window do not trigger additional Azure Function invocations.
+- **Raw data:** No business logic is applied — field values are returned as-is from Dataverse. Consuming apps are responsible for any filtering, sorting, or grouping needed for their UI.
 
 ---
 
