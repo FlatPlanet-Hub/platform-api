@@ -41,7 +41,7 @@ public sealed class DataverseService : IDataverseService
     {
         const string query =
             "fp_employees?$select=fp_name,fp_employmentdate,fp_separationdate," +
-            "fp_employmentstatus,_fp_reportingto_value,_fp_activeclient_value" +
+            "fp_employmentstatus,_fp_activereportingto_value,_fp_activeclient_value" +
             "&$filter=statecode%20eq%200";
 
         return await QueryDataverseAsync<EmployeeDto>(query);
