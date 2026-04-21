@@ -212,25 +212,27 @@ public sealed class ProjectService : IProjectService
             }
         }
 
-        var suffix = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        // Millisecond precision avoids slug collision if two projects are deactivated in the same second.
+        var suffix = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
         var originalName = project.Name;
-        var originalSlug = project.AppSlug;
 
-        project.Name      = $"{project.Name} (deleted)";
-        project.AppSlug   = project.AppSlug is not null ? $"{project.AppSlug}-deleted-{suffix}" : null;
+        project.Name     = $"{project.Name} (deleted)";
+        project.AppSlug  = project.AppSlug is not null ? $"{project.AppSlug}-deleted-{suffix}" : null;
         project.IsActive  = false;
         project.UpdatedAt = DateTime.UtcNow;
         await _projectRepo.UpdateAsync(project);
 
-        // Mirror the slug/name rename in the Security Platform so the slug is freed for reuse
-        if (project.AppId is not null && originalSlug is not null)
+        // Mirror the slug/name rename in the Security Platform so the slug is freed for reuse.
+        // newSlug is the already-mutated value — intentional, not a bug.
+        // Failure here is non-fatal: HubApi slug is already freed; SP slug cleanup is best-effort.
+        if (project.AppId is not null && project.AppSlug is not null)
         {
             try
             {
                 await _securityPlatform.DeactivateAppAsync(
                     project.AppId.Value,
                     project.Name,
-                    project.AppSlug!);
+                    project.AppSlug);
             }
             catch (Exception ex)
             {

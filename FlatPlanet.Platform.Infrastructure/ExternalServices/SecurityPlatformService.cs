@@ -39,12 +39,12 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
 
     public async Task DeactivateAppAsync(Guid appId, string newName, string newSlug)
     {
+        // BaseUrl is omitted (null) so the SP preserves the existing value.
         var response = await ServiceClient.PutAsJsonAsync($"api/v1/apps/{appId}", new
         {
-            name    = newName,
-            slug    = newSlug,
-            baseUrl = string.Empty,
-            status  = "inactive"
+            name   = newName,
+            slug   = newSlug,
+            status = "inactive"
         });
         await EnsureSuccessAsync(response);
     }
