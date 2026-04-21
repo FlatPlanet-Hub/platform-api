@@ -273,6 +273,23 @@ public sealed class ProjectService : IProjectService
         return (pushed, skipped, failures);
     }
 
+    public async Task SyncSpStatusAsync(Guid projectId, Guid userId)
+    {
+        var project = await GetOrThrowAsync(projectId);
+
+        if (project.IsActive)
+            throw new InvalidOperationException("Project is still active — only deactivated projects can be re-synced to SP.");
+
+        if (project.AppId is null)
+            throw new InvalidOperationException("Project has no SP app ID — nothing to sync.");
+
+        if (project.AppSlug is null)
+            throw new InvalidOperationException("Project has no app slug — SP sync cannot determine the target slug.");
+
+        // Re-apply the same deactivation call using the already-mutated name/slug stored in HubApi.
+        await _securityPlatform.DeactivateAppAsync(project.AppId.Value, project.Name, project.AppSlug);
+    }
+
     public async Task<StorageProvisionResponse> ProvisionStorageAsync(Guid projectId, Guid userId)
     {
         var project = await _projectRepo.GetByIdAsync(projectId)

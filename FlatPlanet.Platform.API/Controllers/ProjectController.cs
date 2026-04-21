@@ -114,6 +114,16 @@ public sealed class ProjectController : ApiControllerBase
         return OkData(result);
     }
 
+    [HttpPost("{id:guid}/sync-sp")]
+    public async Task<ActionResult<ApiResponse<object?>>> SyncSp(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        await _projectService.SyncSpStatusAsync(id, userId.Value);
+        return Ok(ApiResponse<object?>.Ok(null));
+    }
+
     [HttpPost("~/api/admin/sync-claude-md")]
     public async Task<IActionResult> SyncAllClaudeMd()
     {

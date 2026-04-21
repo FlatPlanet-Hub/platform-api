@@ -10,6 +10,7 @@ public interface IProjectService
     Task<ProjectResponse> GetProjectAsync(Guid projectId, Guid userId);
     Task<ProjectResponse> UpdateProjectAsync(Guid projectId, Guid userId, UpdateProjectRequest request);
     Task DeactivateProjectAsync(Guid projectId, Guid userId);
+    Task SyncSpStatusAsync(Guid projectId, Guid userId);
     Task<(int pushed, int skipped, List<string> failures)> SyncAllClaudeMdAsync(Guid actorId, string actorEmail, string baseUrl);
     Task<StorageProvisionResponse> ProvisionStorageAsync(Guid projectId, Guid userId);
 }
