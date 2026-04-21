@@ -277,17 +277,20 @@ public sealed class ProjectService : IProjectService
     {
         var project = await GetOrThrowAsync(projectId);
 
+        if (project.AppSlug is not null)
+        {
+            var allowed = await _securityPlatform.AuthorizeAsync(project.AppSlug, projectId.ToString(), "manage_members");
+            if (!allowed) throw new UnauthorizedAccessException("You do not have permission to sync this project.");
+        }
+
         if (project.IsActive)
             throw new InvalidOperationException("Project is still active — only deactivated projects can be re-synced to SP.");
 
         if (project.AppId is null)
             throw new InvalidOperationException("Project has no SP app ID — nothing to sync.");
 
-        if (project.AppSlug is null)
-            throw new InvalidOperationException("Project has no app slug — SP sync cannot determine the target slug.");
-
         // Re-apply the same deactivation call using the already-mutated name/slug stored in HubApi.
-        await _securityPlatform.DeactivateAppAsync(project.AppId.Value, project.Name, project.AppSlug);
+        await _securityPlatform.DeactivateAppAsync(project.AppId.Value, project.Name, project.AppSlug!);
     }
 
     public async Task<StorageProvisionResponse> ProvisionStorageAsync(Guid projectId, Guid userId)
