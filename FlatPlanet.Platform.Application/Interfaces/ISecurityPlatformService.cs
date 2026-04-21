@@ -5,6 +5,7 @@ namespace FlatPlanet.Platform.Application.Interfaces;
 public interface ISecurityPlatformService
 {
     Task<Guid> RegisterAppAsync(string name, string slug, string baseUrl, Guid companyId);
+    Task DeactivateAppAsync(Guid appId, string newName, string newSlug);
     Task SetupProjectRolesAsync(Guid appId);
 
     Task GrantRoleAsync(Guid appId, Guid userId, string roleName);

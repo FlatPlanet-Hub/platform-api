@@ -2,6 +2,7 @@ using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.DTOs.Storage;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace FlatPlanet.Platform.Application.Services;
 
@@ -13,6 +14,7 @@ public sealed class ProjectService : IProjectService
     private readonly IDbProxyService _dbProxy;
     private readonly IClaudeConfigService _claudeConfig;
     private readonly IStorageBucketService _bucketService;
+    private readonly ILogger<ProjectService> _logger;
 
     public ProjectService(
         IProjectRepository projectRepo,
@@ -20,7 +22,8 @@ public sealed class ProjectService : IProjectService
         IGitHubRepoService gitHubRepo,
         IDbProxyService dbProxy,
         IClaudeConfigService claudeConfig,
-        IStorageBucketService bucketService)
+        IStorageBucketService bucketService,
+        ILogger<ProjectService> logger)
     {
         _projectRepo = projectRepo;
         _securityPlatform = securityPlatform;
@@ -28,6 +31,7 @@ public sealed class ProjectService : IProjectService
         _dbProxy = dbProxy;
         _claudeConfig = claudeConfig;
         _bucketService = bucketService;
+        _logger = logger;
     }
 
     public async Task<ProjectResponse> CreateProjectAsync(
@@ -208,9 +212,34 @@ public sealed class ProjectService : IProjectService
             }
         }
 
-        project.IsActive = false;
+        var suffix = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        var originalName = project.Name;
+        var originalSlug = project.AppSlug;
+
+        project.Name      = $"{project.Name} (deleted)";
+        project.AppSlug   = project.AppSlug is not null ? $"{project.AppSlug}-deleted-{suffix}" : null;
+        project.IsActive  = false;
         project.UpdatedAt = DateTime.UtcNow;
         await _projectRepo.UpdateAsync(project);
+
+        // Mirror the slug/name rename in the Security Platform so the slug is freed for reuse
+        if (project.AppId is not null && originalSlug is not null)
+        {
+            try
+            {
+                await _securityPlatform.DeactivateAppAsync(
+                    project.AppId.Value,
+                    project.Name,
+                    project.AppSlug!);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to deactivate SP app for project {ProjectName} (appId {AppId}). " +
+                    "HubApi slug was renamed but SP slug may still be active.",
+                    originalName, project.AppId);
+            }
+        }
     }
 
     public async Task<(int pushed, int skipped, List<string> failures)> SyncAllClaudeMdAsync(Guid actorId, string actorEmail, string baseUrl)
