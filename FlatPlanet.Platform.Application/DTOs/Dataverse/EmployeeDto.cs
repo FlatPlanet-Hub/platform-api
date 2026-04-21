@@ -19,4 +19,7 @@ public sealed record EmployeeDto(
     string? ClientOpsLead,
 
     [property: JsonPropertyName("_fp_activeclient_value@OData.Community.Display.V1.FormattedValue")]
-    string? Client);
+    string? Client,
+
+    [property: JsonPropertyName("fp_activeclientofficer")]
+    string? ActiveClientOfficer);

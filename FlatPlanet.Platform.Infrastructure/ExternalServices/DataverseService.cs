@@ -42,7 +42,7 @@ public sealed class DataverseService : IDataverseService
         // Filters: active only (statecode = 0) + Round Earth Philippines, Inc. company only
         const string query =
             "fp_employees?$select=fp_name,fp_employmentdate,fp_separationdate," +
-            "fp_employmentstatus,_fp_activereportingto_value,_fp_activeclient_value" +
+            "fp_employmentstatus,_fp_activereportingto_value,_fp_activeclient_value,fp_activeclientofficer" +
             "&$filter=statecode%20eq%200%20and%20_fp_company_value%20eq%20bd7c35ae-b482-e911-a83a-000d3a07f6fe";
 
         return await QueryDataverseAsync<EmployeeDto>(query);
