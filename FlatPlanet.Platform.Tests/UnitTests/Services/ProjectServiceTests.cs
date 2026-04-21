@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Moq;
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.Interfaces;
@@ -14,9 +15,10 @@ public sealed class ProjectServiceTests
     private readonly Mock<IDbProxyService> _dbProxy = new();
     private readonly Mock<IClaudeConfigService> _claudeConfig = new();
     private readonly Mock<IStorageBucketService> _bucketService = new();
+    private readonly Mock<ILogger<ProjectService>> _logger = new();
 
     private ProjectService CreateSut() =>
-        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _claudeConfig.Object, _bucketService.Object);
+        new(_projectRepo.Object, _securityPlatform.Object, _gitHubRepo.Object, _dbProxy.Object, _claudeConfig.Object, _bucketService.Object, _logger.Object);
 
     [Fact]
     public async Task CreateProject_ShouldProvisionSchema_AndRegisterApp()
