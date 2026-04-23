@@ -164,8 +164,54 @@ Suite 2 is blocked on the **SP side** (not HubApi) — see SP `CONVERSATION-LOG.
 
 ### Open Items
 
-- [ ] Suite 2–4 pending — resume after `V26__app_cascade_delete.sql` applied on SP side
+- [x] Suite 2–4 — ✅ ALL PASSED (2026-04-23, see session below)
 - [ ] Auth portal URL — update `App.BaseUrl` in SP when portal is built
 - [ ] Fix fp-development-hub GitHub branch in DB (`github_branch = 'master'`)
+
+---
+
+---
+
+## Session: Project Deletion — Suites 2–4 Complete
+
+**Date**: 2026-04-23
+**Branch**: `main` (no new code — integration testing only)
+
+---
+
+### Integration Test Results
+
+All remaining suites for the project deletion feature passed.
+
+**Test subject**: Cash Flow v2  
+- HubApi project ID: `7ff63aee-c9ad-4eda-920c-f426eddab98b`
+- SP app ID: `ab20cdae-933c-4ed9-9243-b3ebf71a32e9`
+
+| Suite | Description | Status |
+|---|---|---|
+| Suite 1 | `DELETE /api/projects/{id}` — HubApi soft-delete | ✅ PASSED (prev session) |
+| Suite 2 | `DELETE /api/v1/apps/{id}` — SP hard delete | ✅ PASSED |
+| Suite 3 | `POST /api/projects/{id}/sync-sp` — divergence recovery | ✅ PASSED |
+| Suite 4a | SP app returns 404 post-delete | ✅ PASSED |
+| Suite 4b | `app.delete` appears in SP admin audit log | ✅ PASSED |
+| Suite 4c | Slug `cash-flow-v2` reusable after delete | ✅ PASSED |
+
+**V26** (`db/V26__app_cascade_delete.sql`) was applied to Supabase by the user. This added the ON DELETE CASCADE/SET NULL FK rules that unblocked Suite 2.
+
+---
+
+### GAP-TEST-2 — platform_owner bypass missing on `/api/v1/authorize`
+
+**Confirmed.** `AuthorizationService.AuthorizeAsync` in SP checks `user_app_roles` only. `platform_owner` JWT role claim is not checked — if no row exists in `user_app_roles` for that app, the response is `Allowed = false`.
+
+**Effect on sync-sp**: Chris (platform_owner) got 403 because his roles on cash-flow-v2 were cleaned up during deactivation. Workaround: granted Chris owner role via SP's `POST /api/v1/apps/{appId}/users` (AdminAccess policy accepts platform_owner) to unblock the test.
+
+**Coder action needed**: Add `platform_owner` bypass in `AuthorizationService.AuthorizeAsync` — check if user has `platform_owner` role claim before querying `user_app_roles`. Severity: P2.
+
+---
+
+### Minor SP Bug Noted
+
+`POST /api/v1/apps` create response returns `registeredAt: 0001-01-01T00:00:00`. Value is stored correctly in DB — PUT and GET return the real timestamp. DTO not populated after INSERT. Low priority.
 
 ---
