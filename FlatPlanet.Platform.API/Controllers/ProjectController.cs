@@ -78,7 +78,11 @@ public sealed class ProjectController : ApiControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        await _projectService.DeactivateProjectAsync(id, userId.Value);
+        var actorEmail = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+                      ?? User.FindFirst("email")?.Value
+                      ?? string.Empty;
+
+        await _projectService.DeactivateProjectAsync(id, userId.Value, actorEmail);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 

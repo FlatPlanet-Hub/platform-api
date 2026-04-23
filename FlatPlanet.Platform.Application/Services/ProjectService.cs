@@ -1,3 +1,4 @@
+using FlatPlanet.Platform.Application.Common;
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.DTOs.Storage;
 using FlatPlanet.Platform.Application.Interfaces;
@@ -14,6 +15,7 @@ public sealed class ProjectService : IProjectService
     private readonly IDbProxyService _dbProxy;
     private readonly IClaudeConfigService _claudeConfig;
     private readonly IStorageBucketService _bucketService;
+    private readonly IAuditLogRepository _auditLog;
     private readonly ILogger<ProjectService> _logger;
 
     public ProjectService(
@@ -23,6 +25,7 @@ public sealed class ProjectService : IProjectService
         IDbProxyService dbProxy,
         IClaudeConfigService claudeConfig,
         IStorageBucketService bucketService,
+        IAuditLogRepository auditLog,
         ILogger<ProjectService> logger)
     {
         _projectRepo = projectRepo;
@@ -31,6 +34,7 @@ public sealed class ProjectService : IProjectService
         _dbProxy = dbProxy;
         _claudeConfig = claudeConfig;
         _bucketService = bucketService;
+        _auditLog = auditLog;
         _logger = logger;
     }
 
@@ -102,6 +106,10 @@ public sealed class ProjectService : IProjectService
         };
 
         var created = await _projectRepo.CreateAsync(project);
+
+        await _auditLog.LogAsync(userId, actorEmail, AuditAction.ProjectCreate,
+            "project", created.Id, new { name = created.Name, appSlug = created.AppSlug },
+            ipAddress: null);
 
         // 4. Seed repo files + push CLAUDE.md (fire-and-forget)
         if (repoFullName is not null)
@@ -194,7 +202,7 @@ public sealed class ProjectService : IProjectService
         return ToResponse(project);
     }
 
-    public async Task DeactivateProjectAsync(Guid projectId, Guid userId)
+    public async Task DeactivateProjectAsync(Guid projectId, Guid userId, string actorEmail)
     {
         var project = await GetOrThrowAsync(projectId);
         if (project.AppSlug is not null)
@@ -221,6 +229,10 @@ public sealed class ProjectService : IProjectService
         project.IsActive  = false;
         project.UpdatedAt = DateTime.UtcNow;
         await _projectRepo.UpdateAsync(project);
+
+        await _auditLog.LogAsync(userId, actorEmail, AuditAction.ProjectDeactivate,
+            "project", projectId, new { projectId, name = originalName },
+            ipAddress: null);
 
         // Mirror the slug/name rename in the Security Platform so the slug is freed for reuse.
         // newSlug is the already-mutated value — intentional, not a bug.

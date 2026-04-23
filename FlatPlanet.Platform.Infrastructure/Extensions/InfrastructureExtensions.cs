@@ -5,6 +5,7 @@ using FlatPlanet.Platform.Application.Common.Options;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Application.Services;
 using FlatPlanet.Platform.Infrastructure.Azure;
+using FlatPlanet.Platform.Infrastructure.Common;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.ExternalServices;
 using FlatPlanet.Platform.Infrastructure.Repositories;
@@ -63,6 +64,8 @@ public static class InfrastructureExtensions
         // Repositories (HubApi owns only these two)
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IApiTokenRepository, ApiTokenRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddHostedService<AuditLogCleanupService>();
 
         // DB proxy (Feature 1)
         services.AddScoped<IDbProxyService, DbProxyService>();

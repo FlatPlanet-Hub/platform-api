@@ -39,7 +39,9 @@ public sealed class ApiTokensController(IApiTokenService apiTokenService) : ApiC
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        await apiTokenService.RevokeAsync(tokenId, userId.Value);
+        var actorEmail = User.FindFirst("email")?.Value ?? string.Empty;
+
+        await apiTokenService.RevokeAsync(tokenId, userId.Value, actorEmail);
         return Ok(ApiResponse<object?>.Ok(null));
     }
 }

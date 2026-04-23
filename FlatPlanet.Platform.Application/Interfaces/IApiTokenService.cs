@@ -6,5 +6,5 @@ public interface IApiTokenService
 {
     Task<ApiTokenResponse> CreateAsync(Guid userId, string userName, string userEmail, CreateApiTokenRequest request, string apiBaseUrl);
     Task<IEnumerable<ApiTokenSummaryDto>> ListActiveAsync(Guid userId);
-    Task RevokeAsync(Guid tokenId, Guid userId);
+    Task RevokeAsync(Guid tokenId, Guid userId, string actorEmail);
 }
