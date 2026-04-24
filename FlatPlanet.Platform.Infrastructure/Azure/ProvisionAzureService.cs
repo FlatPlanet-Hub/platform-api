@@ -84,7 +84,7 @@ public sealed class ProvisionAzureService(
         // 8. Resolve App Service name — caller-supplied takes precedence over slug-derived
         appServiceName = string.IsNullOrWhiteSpace(appServiceName)
             ? BuildAppServiceName(project.AppSlug ?? project.SchemaName)
-            : appServiceName.Trim().ToLowerInvariant();
+            : BuildAppServiceName(appServiceName); // normalise: lowercase, collapse hyphens, enforce length
 
         // 9. Provision
         var result = await provisioner.ProvisionAsync(appServiceName, envVars);
