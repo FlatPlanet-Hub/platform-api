@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace FlatPlanet.Platform.Application.DTOs.Auth;
 
 public sealed class ClaudeConfigResponse
@@ -5,6 +7,13 @@ public sealed class ClaudeConfigResponse
     public string Content { get; init; } = string.Empty;
     public Guid TokenId { get; init; }
     public DateTime ExpiresAt { get; init; }
+
+    /// <summary>
+    /// Raw token — available in-process only for fire-and-forget Netlify push.
+    /// Never serialised to JSON.
+    /// </summary>
+    [JsonIgnore]
+    public string? RawToken { get; init; }
 }
 
 public sealed class ClaudeTokenSummaryDto
