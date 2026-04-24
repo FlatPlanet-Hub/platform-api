@@ -47,8 +47,8 @@ public sealed class ProjectRepository : IProjectRepository
     {
         await using var conn = _db.CreateConnection();
         const string sql = """
-            INSERT INTO platform.projects (id, name, description, schema_name, owner_id, app_id, app_slug, github_repo, github_repo_name, github_branch, github_repo_link, tech_stack, project_type, auth_enabled, is_active, created_at, updated_at)
-            VALUES (@Id, @Name, @Description, @SchemaName, @OwnerId, @AppId, @AppSlug, @GitHubRepo, @GitHubRepoName, @GitHubBranch, @GitHubRepoLink, @TechStack, @ProjectType, @AuthEnabled, @IsActive, @CreatedAt, @UpdatedAt)
+            INSERT INTO platform.projects (id, name, description, schema_name, owner_id, app_id, app_slug, github_repo, github_repo_name, github_branch, github_repo_link, tech_stack, project_type, auth_enabled, netlify_site_id, is_active, created_at, updated_at)
+            VALUES (@Id, @Name, @Description, @SchemaName, @OwnerId, @AppId, @AppSlug, @GitHubRepo, @GitHubRepoName, @GitHubBranch, @GitHubRepoLink, @TechStack, @ProjectType, @AuthEnabled, @NetlifySiteId, @IsActive, @CreatedAt, @UpdatedAt)
             RETURNING *
             """;
         try

@@ -67,6 +67,15 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         await _audit.LogAsync(userId, project.AppId, "claude_config.generated", "api_tokens",
             new { tokenId = stored.Id });
 
+        // Fire-and-forget: push VITE_PLATFORM_TOKEN to Netlify if site is configured
+        if (!string.IsNullOrWhiteSpace(project.NetlifySiteId))
+        {
+            _ = _netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", rawToken)
+                .ContinueWith(t => _logger.LogWarning(t.Exception,
+                    "Failed to push VITE_PLATFORM_TOKEN to Netlify site {SiteId}", project.NetlifySiteId),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
+
         return new ClaudeConfigResponse
         {
             Content   = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github),
