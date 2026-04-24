@@ -198,9 +198,10 @@ public sealed class ProjectService : IProjectService
         if (request.AuthEnabled is not null) project.AuthEnabled = request.AuthEnabled.Value;
         if (request.NetlifySiteId is not null)
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(request.NetlifySiteId, @"^[a-zA-Z0-9-]+$"))
+            if (request.NetlifySiteId.Length > 0 &&
+                !System.Text.RegularExpressions.Regex.IsMatch(request.NetlifySiteId, @"^[a-zA-Z0-9-]+$"))
                 throw new ArgumentException("Invalid Netlify site ID format. Must contain only letters, digits, and hyphens.");
-            project.NetlifySiteId = request.NetlifySiteId;
+            project.NetlifySiteId = request.NetlifySiteId.Length == 0 ? null : request.NetlifySiteId;
         }
         project.UpdatedAt = DateTime.UtcNow;
 
