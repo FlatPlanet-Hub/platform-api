@@ -1,9 +1,20 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.5.0
+**Version:** 1.6.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.6.0
+
+| Change | Details |
+|---|---|
+| `netlifySiteId` on projects | New optional field on all project responses and `PUT /api/projects/{id}`. Set once to wire a project to its Netlify site — the platform auto-pushes `VITE_PLATFORM_TOKEN` and `VITE_API_URL` whenever a token is generated or Azure is provisioned. Clear it by sending `""`. |
+| `appServiceName` on provision-azure | `POST /api/projects/{id}/provision-azure` now accepts an optional `appServiceName` body field. Use this when the auto-derived name (slug + `-api`) is already taken in Azure. |
+| Netlify auto-push on token regen | `POST /api/projects/{id}/claude-config/regenerate` now fires `VITE_PLATFORM_TOKEN` to the project's Netlify site (fire-and-forget) after issuing the new token. |
+| Netlify auto-push on Azure provision | `POST /api/projects/{id}/provision-azure` pushes `VITE_API_URL` and `VITE_PLATFORM_TOKEN` to Netlify after provisioning, then triggers a Netlify redeploy — all fire-and-forget. |
 
 ---
 
@@ -407,6 +418,7 @@ Returns all projects the authenticated user has access to. Access is determined 
       },
       "projectType": "fullstack",
       "authEnabled": false,
+      "netlifySiteId": "a42df2d2-0a69-4995-ba93-2b17061218a5",
       "members": null
     }
   ]
@@ -512,12 +524,14 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
     },
     "projectType": "fullstack",
     "authEnabled": false,
+    "netlifySiteId": null,
     "members": null
   }
 }
 ```
 
 `github` is `null` in the response when no GitHub configuration was provided.
+`netlifySiteId` is `null` on creation — set it via `PUT /api/projects/{id}` once the Netlify site exists.
 
 **Error Responses:**
 
@@ -576,6 +590,7 @@ Returns a single project by ID.
     },
     "projectType": "fullstack",
     "authEnabled": false,
+    "netlifySiteId": "a42df2d2-0a69-4995-ba93-2b17061218a5",
     "members": null
   }
 }
@@ -616,7 +631,8 @@ Updates project metadata. Requires `manage_members` permission (checked via Secu
 {
   "name": "Acme CRM v2",
   "description": "Updated description",
-  "techStack": "Next.js + .NET 10"
+  "techStack": "Next.js + .NET 10",
+  "netlifySiteId": "a42df2d2-0a69-4995-ba93-2b17061218a5"
 }
 ```
 
@@ -629,6 +645,7 @@ Updates project metadata. Requires `manage_members` permission (checked via Secu
 | `techStack` | string | No | Free-text tech stack description |
 | `projectType` | string | No | Update project type (optional) |
 | `authEnabled` | boolean | No | Update auth enabled flag (optional) |
+| `netlifySiteId` | string | No | Netlify site ID to link to this project. Must contain only letters, digits, and hyphens. Send `""` (empty string) to clear. Once set, the platform auto-pushes `VITE_PLATFORM_TOKEN` and `VITE_API_URL` to this site on token regeneration and Azure provisioning. |
 
 All fields are optional. Only provided fields are updated.
 
@@ -817,6 +834,7 @@ All other app settings (`Jwt__*`, `PlatformApi__*`, `ConnectionStrings__Default`
 - App settings (`Jwt__*`, `PlatformApi__*`, `ConnectionStrings__Default`) are written immediately after provisioning.
 - The `appServiceUrl` is read from `DefaultHostName` on the Azure SDK response — it reflects the actual URL Azure assigned, including any random suffix and region. A fallback to `{name}.azurewebsites.net` is used only if Azure returns a blank hostname (rare edge case).
 - If the publish profile fetch fails, provisioning is still considered successful and `publishProfileXml` is returned as an empty string. Use `POST /api/projects/{id}/sync-github-actions` to retry the GitHub Actions setup separately.
+- **Netlify auto-push:** If the project has a `netlifySiteId` set, `VITE_API_URL` and `VITE_PLATFORM_TOKEN` are pushed to Netlify after provisioning completes, then a Netlify redeploy is triggered — all fire-and-forget. The deploy is triggered only after both env vars are confirmed pushed (sequential, not concurrent). Failures are logged and do not affect the provision response.
 
 ---
 
@@ -1120,6 +1138,7 @@ Revokes the current API token and issues a new one. Returns fresh CLAUDE.md cont
 **Notes:**
 - The old token is immediately invalidated. Any Claude Code session using the old token will receive `401` on the next request.
 - After regeneration, update `.claude/CLAUDE.md` in the project repo with the new `content`.
+- **Netlify auto-push:** If the project has a `netlifySiteId` set, the new token is automatically pushed as `VITE_PLATFORM_TOKEN` to Netlify (fire-and-forget). A Netlify failure is logged but does not affect the response.
 
 ---
 
