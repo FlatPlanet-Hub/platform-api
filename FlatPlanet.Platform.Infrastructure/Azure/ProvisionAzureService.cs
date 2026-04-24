@@ -23,7 +23,8 @@ public sealed class ProvisionAzureService(
         Guid projectId,
         Guid userId,
         string userEmail,
-        string hubBaseUrl)
+        string hubBaseUrl,
+        string? appServiceName = null)
     {
         // 1. Load project
         var project = await projectRepo.GetByIdAsync(projectId)
@@ -80,8 +81,10 @@ public sealed class ProvisionAzureService(
             PlatformApiToken:   platformApiToken,
             SchemaName:         project.SchemaName);
 
-        // 8. Generate a safe App Service name
-        var appServiceName = BuildAppServiceName(project.AppSlug ?? project.SchemaName);
+        // 8. Resolve App Service name — caller-supplied takes precedence over slug-derived
+        appServiceName = string.IsNullOrWhiteSpace(appServiceName)
+            ? BuildAppServiceName(project.AppSlug ?? project.SchemaName)
+            : BuildAppServiceName(appServiceName); // normalise: lowercase, collapse hyphens, enforce length
 
         // 9. Provision
         var result = await provisioner.ProvisionAsync(appServiceName, envVars);

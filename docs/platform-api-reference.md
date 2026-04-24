@@ -770,27 +770,19 @@ Provisions an Azure App Service for the project, sets all required application s
 
 #### Request
 
+Body is optional. All fields are derived automatically from the project and platform config.
+
 ```json
 {
-  "appServiceName": "mayari-api",
-  "jwtSecretKey": "your-secret-key",
-  "jwtIssuer": "flatplanet-security",
-  "jwtAudience": "flatplanet-apps",
-  "platformApiBaseUrl": "https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net",
-  "platformApiToken": "eyJhbGci...",
-  "schemaName": "project_myapp"
+  "appServiceName": "fp-it-api"
 }
 ```
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `appServiceName` | string | Yes | Must be globally unique in Azure. Will become the subdomain of the assigned Azure URL. |
-| `jwtSecretKey` | string | Yes | Secret key for JWT signing in the deployed app. |
-| `jwtIssuer` | string | Yes | JWT issuer claim. |
-| `jwtAudience` | string | Yes | JWT audience claim. |
-| `platformApiBaseUrl` | string | Yes | Base URL for the Platform API the app will call. |
-| `platformApiToken` | string | No | API token injected as `PlatformApi__Token` app setting. |
-| `schemaName` | string | Yes | Postgres schema name for the `ConnectionStrings__Default` app setting. |
+| `appServiceName` | string | No | Override the auto-generated App Service name. Must be 3–60 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphens. If omitted, the name is derived from the project slug with an `-api` suffix (e.g. slug `mayari` → `mayari-api`). Use this when the derived name is already taken in Azure. |
+
+All other app settings (`Jwt__*`, `PlatformApi__*`, `ConnectionStrings__Default`, `ALLOWED_ORIGINS`, `ASPNETCORE_ENVIRONMENT`) are sourced internally from platform config and the project record — they cannot be overridden via this endpoint.
 
 #### Success Response — 200
 
@@ -815,8 +807,8 @@ Provisions an Azure App Service for the project, sets all required application s
 
 | HTTP | Message | Cause |
 |---|---|---|
-| `400` | — | Missing required field. |
-| `409` | App Service name '...' is already taken in Azure. | The `appServiceName` is already registered in Azure globally. Choose a different name. |
+| `400` | — | `appServiceName` failed validation (too short, too long, invalid characters). |
+| `409` | App Service name '...' is already taken in Azure. | The `appServiceName` (supplied or derived) is already registered in Azure globally. Supply a different name in the request body. |
 | `500` | — | Azure ARM API error during provisioning or app settings update. |
 
 #### Notes
