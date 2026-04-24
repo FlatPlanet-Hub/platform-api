@@ -8,7 +8,8 @@ public interface IProvisionAzureService
         Guid projectId,
         Guid userId,
         string userEmail,
-        string hubBaseUrl);
+        string hubBaseUrl,
+        string? appServiceName = null);
 
     Task<SyncGitHubActionsResponse> SyncGitHubActionsAsync(
         Guid projectId,

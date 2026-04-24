@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FlatPlanet.Platform.Application.DTOs;
+using FlatPlanet.Platform.Application.DTOs.Azure;
 using FlatPlanet.Platform.Application.DTOs.Project;
 using FlatPlanet.Platform.Application.Interfaces;
 
@@ -87,14 +88,14 @@ public sealed class ProjectController : ApiControllerBase
     }
 
     [HttpPost("{id:guid}/provision-azure")]
-    public async Task<IActionResult> ProvisionAzure(Guid id)
+    public async Task<IActionResult> ProvisionAzure(Guid id, [FromBody] ProvisionAzureRequest? request = null)
     {
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
         var userEmail = User.FindFirst("email")?.Value ?? string.Empty;
         var hubBaseUrl = $"{Request.Scheme}://{Request.Host}";
-        var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, userEmail, hubBaseUrl);
+        var result = await _provisionAzureService.ProvisionAsync(id, userId.Value, userEmail, hubBaseUrl, request?.AppServiceName);
         return OkData(result);
     }
 
