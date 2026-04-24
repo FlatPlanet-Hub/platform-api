@@ -196,6 +196,7 @@ public sealed class ProjectService : IProjectService
             project.ProjectType = request.ProjectType.ToLowerInvariant();
         }
         if (request.AuthEnabled is not null) project.AuthEnabled = request.AuthEnabled.Value;
+        if (request.NetlifySiteId is not null) project.NetlifySiteId = request.NetlifySiteId;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);

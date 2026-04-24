@@ -31,6 +31,7 @@ public static class InfrastructureExtensions
         services.Configure<AzureSettings>(opts => configuration.GetSection("Azure").Bind(opts));
         services.Configure<SupabaseStorageSettings>(opts => configuration.GetSection("SupabaseStorage").Bind(opts));
         services.Configure<DataverseSettings>(opts => configuration.GetSection("Dataverse").Bind(opts));
+        services.Configure<NetlifySettings>(opts => configuration.GetSection("Netlify").Bind(opts));
 
         services.AddHttpClient("SupabaseStorage", (sp, client) =>
         {
@@ -52,6 +53,14 @@ public static class InfrastructureExtensions
             // Authorization header is set per-request in DataverseService (token is cached)
         });
         services.AddHttpClient("DataverseToken");
+
+        services.AddHttpClient("Netlify", (sp, client) =>
+        {
+            var s = sp.GetRequiredService<IOptions<NetlifySettings>>().Value;
+            client.BaseAddress = new Uri(s.ApiBaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {s.ApiToken}");
+        });
+
         services.AddMemoryCache();
 
         // Infrastructure
@@ -72,6 +81,9 @@ public static class InfrastructureExtensions
 
         // GitHub (service token only)
         services.AddScoped<IGitHubRepoService, GitHubRepoService>();
+
+        // Netlify
+        services.AddScoped<INetlifyService, NetlifyService>();
 
         // Security Platform HTTP clients
         services.AddHttpClient("SecurityPlatform", (sp, client) =>

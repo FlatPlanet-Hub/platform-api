@@ -14,6 +14,7 @@ public sealed class ProvisionAzureService(
     IClaudeConfigService claudeConfig,
     ISecurityPlatformService securityPlatform,
     IGitHubRepoService gitHubRepo,
+    INetlifyService netlify,
     IOptions<JwtSettings> jwtOptions,
     ILogger<ProvisionAzureService> logger) : IProvisionAzureService
 {
@@ -111,7 +112,18 @@ public sealed class ProvisionAzureService(
                 System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
-        // 12. Return result — surface the raw token so the caller can relay it to the user
+        // 12. Push VITE_API_URL + VITE_PLATFORM_TOKEN to Netlify (fire-and-forget)
+        if (!string.IsNullOrWhiteSpace(project.NetlifySiteId))
+        {
+            _ = Task.WhenAll(
+                netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_API_URL", result.AppServiceUrl),
+                netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", envVars.PlatformApiToken ?? string.Empty),
+                netlify.TriggerDeployAsync(project.NetlifySiteId)
+            ).ContinueWith(t => logger.LogWarning(t.Exception, "Failed to push env vars to Netlify site {SiteId}", project.NetlifySiteId),
+                System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        // 13. Return result — surface the raw token so the caller can relay it to the user
         return new ProvisionAzureResponse(result.AppServiceName, result.AppServiceUrl, envVars.PlatformApiToken);
     }
 

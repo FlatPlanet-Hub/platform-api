@@ -4,6 +4,7 @@ using FlatPlanet.Platform.Application.Common.Options;
 using FlatPlanet.Platform.Application.DTOs.Auth;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Domain.Entities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FlatPlanet.Platform.Application.Services;
@@ -15,7 +16,9 @@ public sealed class ClaudeConfigService : IClaudeConfigService
     private readonly IJwtService _jwtService;
     private readonly IAuditService _audit;
     private readonly ISecurityPlatformService _securityPlatform;
+    private readonly INetlifyService _netlify;
     private readonly GitHubOptions _github;
+    private readonly ILogger<ClaudeConfigService> _logger;
 
     public ClaudeConfigService(
         IProjectRepository projectRepo,
@@ -23,14 +26,18 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         IJwtService jwtService,
         IAuditService audit,
         ISecurityPlatformService securityPlatform,
-        IOptions<GitHubOptions> github)
+        INetlifyService netlify,
+        IOptions<GitHubOptions> github,
+        ILogger<ClaudeConfigService> logger)
     {
         _projectRepo = projectRepo;
         _apiTokenRepo = apiTokenRepo;
         _jwtService = jwtService;
         _audit = audit;
         _securityPlatform = securityPlatform;
+        _netlify = netlify;
         _github = github.Value;
+        _logger = logger;
     }
 
     public async Task<ClaudeConfigResponse> GenerateAsync(Guid userId, Guid projectId, string baseUrl, string userName, string userEmail)
@@ -62,9 +69,10 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
         return new ClaudeConfigResponse
         {
-            Content = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github),
-            TokenId = stored.Id,
-            ExpiresAt = expiresAt
+            Content   = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github),
+            TokenId   = stored.Id,
+            ExpiresAt = expiresAt,
+            RawToken  = rawToken
         };
     }
 
@@ -81,7 +89,18 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             await _apiTokenRepo.RevokeAsync(t.Id, "regenerated");
 
         await _audit.LogAsync(userId, project.AppId, "claude_config.revoked_all", "api_tokens");
-        return await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+        var result = await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+
+        // Fire-and-forget: push VITE_PLATFORM_TOKEN to Netlify if site is configured
+        if (!string.IsNullOrWhiteSpace(project.NetlifySiteId) && result.RawToken is not null)
+        {
+            _ = _netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", result.RawToken)
+                .ContinueWith(t => _logger.LogWarning(t.Exception,
+                    "Failed to push VITE_PLATFORM_TOKEN to Netlify site {SiteId}", project.NetlifySiteId),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        return result;
     }
 
     public async Task RevokeAsync(Guid userId, Guid projectId)

@@ -71,7 +71,8 @@ public sealed class ProjectRepository : IProjectRepository
                 is_active = @IsActive, app_id = @AppId,
                 app_slug = @AppSlug, updated_at = @UpdatedAt,
                 azure_app_service_name = @AzureAppServiceName,
-                azure_app_service_url = @AzureAppServiceUrl
+                azure_app_service_url = @AzureAppServiceUrl,
+                netlify_site_id = @NetlifySiteId
             WHERE id = @Id
             """;
         await conn.ExecuteAsync(sql, project);
