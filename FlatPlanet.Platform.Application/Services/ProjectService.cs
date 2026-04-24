@@ -196,7 +196,12 @@ public sealed class ProjectService : IProjectService
             project.ProjectType = request.ProjectType.ToLowerInvariant();
         }
         if (request.AuthEnabled is not null) project.AuthEnabled = request.AuthEnabled.Value;
-        if (request.NetlifySiteId is not null) project.NetlifySiteId = request.NetlifySiteId;
+        if (request.NetlifySiteId is not null)
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(request.NetlifySiteId, @"^[a-zA-Z0-9-]+$"))
+                throw new ArgumentException("Invalid Netlify site ID format. Must contain only letters, digits, and hyphens.");
+            project.NetlifySiteId = request.NetlifySiteId;
+        }
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
@@ -351,10 +356,11 @@ public sealed class ProjectService : IProjectService
         SchemaName  = p.SchemaName,
         OwnerId     = p.OwnerId,
         AppSlug     = p.AppSlug,
-        TechStack   = p.TechStack,
-        ProjectType = p.ProjectType,
-        AuthEnabled = p.AuthEnabled,
-        IsActive    = p.IsActive,
+        TechStack     = p.TechStack,
+        ProjectType   = p.ProjectType,
+        AuthEnabled   = p.AuthEnabled,
+        NetlifySiteId = p.NetlifySiteId,
+        IsActive      = p.IsActive,
         CreatedAt   = p.CreatedAt,
         RoleName    = roleName,
         GitHub      = p.GitHubRepo is null ? null : new GitHubRepoResponse

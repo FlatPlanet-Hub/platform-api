@@ -112,15 +112,24 @@ public sealed class ProvisionAzureService(
                 System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
-        // 12. Push VITE_API_URL + VITE_PLATFORM_TOKEN to Netlify (fire-and-forget)
+        // 12. Push VITE_API_URL + VITE_PLATFORM_TOKEN to Netlify, then trigger deploy (fire-and-forget)
         if (!string.IsNullOrWhiteSpace(project.NetlifySiteId))
         {
+            var siteId = project.NetlifySiteId;
+            var apiUrl = result.AppServiceUrl;
+            var platformToken = envVars.PlatformApiToken ?? string.Empty;
             _ = Task.WhenAll(
-                netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_API_URL", result.AppServiceUrl),
-                netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", envVars.PlatformApiToken ?? string.Empty),
-                netlify.TriggerDeployAsync(project.NetlifySiteId)
-            ).ContinueWith(t => logger.LogWarning(t.Exception, "Failed to push env vars to Netlify site {SiteId}", project.NetlifySiteId),
-                System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+                netlify.PushEnvironmentVariableAsync(siteId, "VITE_API_URL", apiUrl),
+                netlify.PushEnvironmentVariableAsync(siteId, "VITE_PLATFORM_TOKEN", platformToken)
+            ).ContinueWith(async t =>
+            {
+                if (t.IsFaulted)
+                {
+                    logger.LogWarning(t.Exception, "Failed to push env vars to Netlify site {SiteId}", siteId);
+                    return;
+                }
+                await netlify.TriggerDeployAsync(siteId);
+            }, TaskScheduler.Default).Unwrap();
         }
 
         // 13. Return result — surface the raw token so the caller can relay it to the user

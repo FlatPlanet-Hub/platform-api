@@ -161,6 +161,6 @@ public sealed class ProjectServiceTests
 
         var sut = CreateSut();
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            sut.DeactivateProjectAsync(projectId, userId));
+            sut.DeactivateProjectAsync(projectId, userId, "test@flatplanet.com.au"));
     }
 }
