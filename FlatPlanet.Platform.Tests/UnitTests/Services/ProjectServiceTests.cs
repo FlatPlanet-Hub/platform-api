@@ -140,6 +140,79 @@ public sealed class ProjectServiceTests
         Assert.Null(result.GitHub);
     }
 
+    // ── UpdateProject — NetlifySiteUrl validation ────────────────────────────
+
+    [Fact]
+    public async Task UpdateProject_WithValidNetlifySiteUrl_ShouldStoreUrlWithoutTrailingSlash()
+    {
+        var projectId = Guid.NewGuid();
+        var userId    = Guid.NewGuid();
+        var project   = new Project
+        {
+            Id = projectId, Name = "Test", SchemaName = "project_test",
+            AppSlug = "test", OwnerId = userId,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        };
+
+        _projectRepo.Setup(r => r.GetByIdAsync(projectId)).ReturnsAsync(project);
+        _securityPlatform.Setup(s => s.AuthorizeAsync("test", projectId.ToString(), "manage_members")).ReturnsAsync(true);
+        _projectRepo.Setup(r => r.UpdateAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
+
+        var sut    = CreateSut();
+        var result = await sut.UpdateProjectAsync(projectId, userId,
+            new UpdateProjectRequest { NetlifySiteUrl = "https://fp-mayari.netlify.app/" });
+
+        Assert.Equal("https://fp-mayari.netlify.app", result.NetlifySiteUrl);
+    }
+
+    [Fact]
+    public async Task UpdateProject_WithEmptyNetlifySiteUrl_ShouldClearToNull()
+    {
+        var projectId = Guid.NewGuid();
+        var userId    = Guid.NewGuid();
+        var project   = new Project
+        {
+            Id = projectId, Name = "Test", SchemaName = "project_test",
+            AppSlug = "test", OwnerId = userId,
+            NetlifySiteUrl = "https://fp-mayari.netlify.app",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        };
+
+        _projectRepo.Setup(r => r.GetByIdAsync(projectId)).ReturnsAsync(project);
+        _securityPlatform.Setup(s => s.AuthorizeAsync("test", projectId.ToString(), "manage_members")).ReturnsAsync(true);
+        _projectRepo.Setup(r => r.UpdateAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
+
+        var sut    = CreateSut();
+        var result = await sut.UpdateProjectAsync(projectId, userId,
+            new UpdateProjectRequest { NetlifySiteUrl = "" });
+
+        Assert.Null(result.NetlifySiteUrl);
+    }
+
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://bad-scheme.com")]
+    [InlineData("javascript:alert(1)")]
+    public async Task UpdateProject_WithInvalidNetlifySiteUrl_ShouldThrowArgumentException(string badUrl)
+    {
+        var projectId = Guid.NewGuid();
+        var userId    = Guid.NewGuid();
+        var project   = new Project
+        {
+            Id = projectId, Name = "Test", SchemaName = "project_test",
+            AppSlug = "test", OwnerId = userId,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        };
+
+        _projectRepo.Setup(r => r.GetByIdAsync(projectId)).ReturnsAsync(project);
+        _securityPlatform.Setup(s => s.AuthorizeAsync("test", projectId.ToString(), "manage_members")).ReturnsAsync(true);
+
+        var sut = CreateSut();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            sut.UpdateProjectAsync(projectId, userId,
+                new UpdateProjectRequest { NetlifySiteUrl = badUrl }));
+    }
+
     [Fact]
     public async Task DeactivateProject_ShouldThrow_WhenRequesterLacksDeletePermission()
     {
