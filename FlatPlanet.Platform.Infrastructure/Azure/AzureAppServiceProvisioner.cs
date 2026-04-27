@@ -147,6 +147,31 @@ public sealed class AzureAppServiceProvisioner(
         }
     }
 
+    public async Task UpdateCorsOriginAsync(string appServiceName, string allowedOrigin)
+    {
+        var credential = new DefaultAzureCredential();
+        var armClient  = new ArmClient(credential, _azure.SubscriptionId);
+
+        var siteResourceId = global::Azure.Core.ResourceIdentifier.Parse(
+            $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}/providers/Microsoft.Web/sites/{appServiceName}");
+        var site = armClient.GetWebSiteResource(siteResourceId);
+
+        // GET existing settings so we don't clobber anything
+        var existing = await site.GetApplicationSettingsAsync();
+        var merged   = new AppServiceConfigurationDictionary();
+        foreach (var kv in existing.Value.Properties)
+            merged.Properties[kv.Key] = kv.Value;
+
+        // Add / replace the CORS origin
+        merged.Properties["Cors__AllowedOrigins__0"] = allowedOrigin;
+
+        await site.UpdateApplicationSettingsAsync(merged);
+
+        logger.LogInformation(
+            "Updated Cors__AllowedOrigins__0 on App Service '{AppServiceName}' → {Origin}",
+            appServiceName, allowedOrigin);
+    }
+
     private string BuildConnectionString(string schemaName) =>
         $"Host={_supabase.Host};Port={_supabase.Port};Database={_supabase.Database};" +
         $"Username={_supabase.AdminUser};Password={_supabase.AdminPassword};" +

@@ -215,6 +215,57 @@ public sealed class ProvisionAzureService(
             "GitHub Actions workflow and secret synced successfully.");
     }
 
+    public async Task<SyncCorsResponse> SyncCorsAsync(Guid projectId, Guid userId)
+    {
+        // 1. Load project
+        var project = await projectRepo.GetByIdAsync(projectId)
+            ?? throw new KeyNotFoundException($"Project {projectId} not found.");
+
+        // 2. Guard: must be provisioned
+        if (string.IsNullOrWhiteSpace(project.AzureAppServiceName))
+            throw new InvalidOperationException("Azure App Service has not been provisioned for this project.");
+
+        // 3. Guard: must have a Netlify URL to apply
+        if (string.IsNullOrWhiteSpace(project.NetlifySiteUrl))
+            throw new InvalidOperationException("Project does not have a NetlifySiteUrl configured.");
+
+        // 4. Authorization — same rules as ProvisionAsync
+        var appAccess = await securityPlatform.GetUserAppAccessAsync(userId);
+
+        var canViewAll = appAccess.Any(a =>
+            a.AppSlug.Equals("dashboard-hub", StringComparison.OrdinalIgnoreCase) &&
+            (a.RoleName.Equals("platform_owner", StringComparison.OrdinalIgnoreCase) ||
+             a.Permissions.Contains("view_all_projects", StringComparer.OrdinalIgnoreCase)));
+
+        if (!canViewAll)
+        {
+            var projectAccess = project.AppId.HasValue
+                ? appAccess.FirstOrDefault(a => a.AppId == project.AppId.Value)
+                : null;
+
+            var hasPermission = projectAccess is not null &&
+                projectAccess.Permissions.Any(p =>
+                    p.Equals("write", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("manage_members", StringComparison.OrdinalIgnoreCase) ||
+                    p.Equals("owner", StringComparison.OrdinalIgnoreCase));
+
+            if (!hasPermission)
+                throw new UnauthorizedAccessException("You do not have permission to sync CORS for this project.");
+        }
+
+        // 5. Merge the setting on the existing App Service
+        await provisioner.UpdateCorsOriginAsync(project.AzureAppServiceName, project.NetlifySiteUrl);
+
+        logger.LogInformation(
+            "Synced CORS for project {ProjectId} — app service: {AppService}, origin: {Origin}",
+            projectId, project.AzureAppServiceName, project.NetlifySiteUrl);
+
+        return new SyncCorsResponse(
+            project.AzureAppServiceName,
+            project.NetlifySiteUrl,
+            "Cors__AllowedOrigins__0 updated successfully.");
+    }
+
     private static string BuildAppServiceName(string slug)
     {
         // Lowercase, replace non-alphanumeric/non-hyphen with hyphen

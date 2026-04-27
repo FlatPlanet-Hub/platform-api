@@ -129,6 +129,16 @@ public sealed class ProjectController : ApiControllerBase
         return Ok(ApiResponse<object?>.Ok(null));
     }
 
+    [HttpPost("~/api/admin/projects/{id:guid}/sync-cors")]
+    public async Task<IActionResult> SyncCors(Guid id)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var result = await _provisionAzureService.SyncCorsAsync(id, userId.Value);
+        return OkData(result);
+    }
+
     [HttpPost("~/api/admin/sync-claude-md")]
     public async Task<IActionResult> SyncAllClaudeMd()
     {

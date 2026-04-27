@@ -15,4 +15,6 @@ public interface IProvisionAzureService
         Guid projectId,
         Guid userId,
         string userEmail);
+
+    Task<SyncCorsResponse> SyncCorsAsync(Guid projectId, Guid userId);
 }

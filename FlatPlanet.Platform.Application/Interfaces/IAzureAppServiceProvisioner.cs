@@ -22,4 +22,10 @@ public interface IAzureAppServiceProvisioner
     /// Returns an empty string if the profile cannot be retrieved.
     /// </summary>
     Task<string> GetPublishProfileAsync(string appServiceName);
+
+    /// <summary>
+    /// Merges (or replaces) the Cors__AllowedOrigins__0 app setting on an already-provisioned
+    /// App Service without touching any other settings.
+    /// </summary>
+    Task UpdateCorsOriginAsync(string appServiceName, string allowedOrigin);
 }
