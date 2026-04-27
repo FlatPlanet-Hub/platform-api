@@ -9,4 +9,5 @@ public sealed class UpdateProjectRequest
     public string? ProjectType { get; init; }
     public bool?   AuthEnabled { get; init; }
     public string? NetlifySiteId { get; init; }
+    public string? NetlifySiteUrl { get; init; }
 }

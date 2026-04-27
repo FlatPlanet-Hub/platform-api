@@ -76,6 +76,9 @@ public sealed class AzureAppServiceProvisioner(
         if (envVars.PlatformApiToken is not null)
             appSettings["PlatformApi__Token"] = envVars.PlatformApiToken;
 
+        if (envVars.AllowedOrigins is not null)
+            appSettings["Cors__AllowedOrigins__0"] = envVars.AllowedOrigins;
+
         var appSettingsData = new AppServiceConfigurationDictionary();
         foreach (var kv in appSettings)
             appSettingsData.Properties[kv.Key] = kv.Value;

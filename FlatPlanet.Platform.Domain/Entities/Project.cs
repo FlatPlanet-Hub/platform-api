@@ -20,6 +20,7 @@ public sealed class Project
     public string? AzureAppServiceUrl { get; set; }
     public string? BucketName { get; set; }
     public string? NetlifySiteId { get; set; }
+    public string? NetlifySiteUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }

@@ -15,6 +15,7 @@ public sealed class ProjectResponse
     public string  ProjectType   { get; init; } = "fullstack";
     public bool    AuthEnabled   { get; init; } = false;
     public string? NetlifySiteId { get; init; }
+    public string? NetlifySiteUrl { get; init; }
     public bool    IsActive      { get; init; }
     public DateTime CreatedAt   { get; init; }
     [JsonPropertyName("github")]

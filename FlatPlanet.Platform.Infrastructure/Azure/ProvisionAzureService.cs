@@ -80,7 +80,8 @@ public sealed class ProvisionAzureService(
             JwtAudience:        _jwt.Audience,
             PlatformApiBaseUrl: hubBaseUrl,
             PlatformApiToken:   platformApiToken,
-            SchemaName:         project.SchemaName);
+            SchemaName:         project.SchemaName,
+            AllowedOrigins:     project.NetlifySiteUrl);
 
         // 8. Resolve App Service name — caller-supplied takes precedence over slug-derived
         appServiceName = string.IsNullOrWhiteSpace(appServiceName)
