@@ -203,6 +203,14 @@ public sealed class ProjectService : IProjectService
                 throw new ArgumentException("Invalid Netlify site ID format. Must contain only letters, digits, and hyphens.");
             project.NetlifySiteId = request.NetlifySiteId.Length == 0 ? null : request.NetlifySiteId;
         }
+        if (request.NetlifySiteUrl is not null)
+        {
+            if (request.NetlifySiteUrl.Length > 0 &&
+                (!Uri.TryCreate(request.NetlifySiteUrl, UriKind.Absolute, out var uri) ||
+                 (uri.Scheme != "https" && uri.Scheme != "http")))
+                throw new ArgumentException("Invalid Netlify site URL. Must be a valid http/https URL.");
+            project.NetlifySiteUrl = request.NetlifySiteUrl.Length == 0 ? null : request.NetlifySiteUrl.TrimEnd('/');
+        }
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
@@ -360,8 +368,9 @@ public sealed class ProjectService : IProjectService
         TechStack     = p.TechStack,
         ProjectType   = p.ProjectType,
         AuthEnabled   = p.AuthEnabled,
-        NetlifySiteId = p.NetlifySiteId,
-        IsActive      = p.IsActive,
+        NetlifySiteId  = p.NetlifySiteId,
+        NetlifySiteUrl = p.NetlifySiteUrl,
+        IsActive       = p.IsActive,
         CreatedAt   = p.CreatedAt,
         RoleName    = roleName,
         GitHub      = p.GitHubRepo is null ? null : new GitHubRepoResponse

@@ -6,4 +6,5 @@ public sealed record AppServiceEnvVars(
     string JwtAudience,
     string PlatformApiBaseUrl,
     string? PlatformApiToken,
-    string SchemaName);
+    string SchemaName,
+    string? AllowedOrigins = null);
