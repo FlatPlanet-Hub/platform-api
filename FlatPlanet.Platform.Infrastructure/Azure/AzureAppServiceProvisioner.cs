@@ -36,10 +36,9 @@ public sealed class AzureAppServiceProvisioner(
             AppServicePlanId = global::Azure.Core.ResourceIdentifier.Parse(_azure.AppServicePlanResourceId),
             SiteConfig = new SiteConfigProperties
             {
-                NetFrameworkVersion = "v10.0",
-                // WindowsFxVersion is required for Windows App Service plans.
-                // If migrating to Linux, change to LinuxFxVersion = "DOTNET|10.0".
-                WindowsFxVersion = "DOTNET|10.0",
+                // FPPlatform uses a Linux App Service Plan — must use LinuxFxVersion.
+                // WindowsFxVersion / NetFrameworkVersion are Windows-only and must NOT be set on Linux.
+                LinuxFxVersion = "DOTNETCORE|10.0",
                 IsAlwaysOn = false,
             },
             IsHttpsOnly = true,
@@ -66,6 +65,10 @@ public sealed class AzureAppServiceProvisioner(
         // Build app settings
         var appSettings = new Dictionary<string, string>
         {
+            // Required for Linux App Service — .NET binds :5000 by default but Azure probes :8080.
+            // Without this the app crash-loops on every cold start (230s timeout).
+            ["ASPNETCORE_URLS"]            = "http://0.0.0.0:8080",
+            ["ASPNETCORE_ENVIRONMENT"]     = "Production",
             ["Jwt__SecretKey"]             = envVars.JwtSecretKey,
             ["Jwt__Issuer"]                = envVars.JwtIssuer,
             ["Jwt__Audience"]              = envVars.JwtAudience,
