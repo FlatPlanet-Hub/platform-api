@@ -215,3 +215,68 @@ All remaining suites for the project deletion feature passed.
 `POST /api/v1/apps` create response returns `registeredAt: 0001-01-01T00:00:00`. Value is stored correctly in DB — PUT and GET return the real timestamp. DTO not populated after INSERT. Low priority.
 
 ---
+
+## Session: NetlifySiteUrl CORS + Retroactive Fix + Dynamic CORS Plan
+
+**Date**: 2026-04-27
+**Branches**: `main` (all commits direct to main this session)
+
+---
+
+### What Was Done
+
+#### 1. Retroactive CORS fix — 7 provisioned App Services
+
+Built and deployed `POST /api/admin/projects/{id}/sync-cors` endpoint:
+- `UpdateCorsOriginAsync(appServiceName, allowedOrigin)` added to `IAzureAppServiceProvisioner` — GETs existing Azure app settings, merges `Cors__AllowedOrigins__0`, PUTs back (non-destructive)
+- `SyncCorsAsync(projectId, userId)` added to `IProvisionAzureService` — same platform_owner auth guard as ProvisionAsync
+- New DTO: `SyncCorsResponse(AppServiceName, AllowedOrigin, Message)`
+- Committed: `feat: add sync-cors admin endpoint for retroactive CORS fix on provisioned App Services`
+
+All 7 provisioned App Services updated successfully:
+| Project | App Service | Origin set |
+|---|---|---|
+| CompliQ | compliq-api | https://fp-compliq.netlify.app |
+| FP-ESignature | fp-esignature-api | https://fp-fp-esignature.netlify.app |
+| InfoSec Training | infosec-training-api | https://fp-infosec-training.netlify.app |
+| ISO Audit Readiness | iso-audit-readiness-api | https://fp-iso-audit-readiness.netlify.app |
+| LMS | learning-management-system-program-api | https://fp-learning-management-system-program.netlify.app |
+| Mayari | mayari-api | https://fp-mayari.netlify.app |
+| Online Competency | online-competency-assessment-tool-api | https://fp-online-competency-assessment-tool.netlify.app |
+
+#### 2. InfoSec Training developer CORS issue
+
+Investigated `Failed to fetch` / 405 on OPTIONS preflight. Confirmed Linux App Service (no WebDAV). Conclusion: 405 on OPTIONS on Linux = app startup crash, not a CORS config issue. Advised developer to check Azure Log Stream for startup exception. Pending: developer to send back log output.
+
+#### 3. Bathala CORS in Security Platform
+
+`https://fp-bathala.netlify.app` was not in the Security Platform's allowed origins. Updated `apps.base_url` for Bathala (`id: 1a2dc149-14bf-4ae7-a2f6-091a5619a461`) to `https://fp-bathala.netlify.app` via `PUT /api/v1/apps/{id}` using Chris Moriarty's JWT. Security Platform App Service requires manual restart to pick up (startup-only CORS).
+
+#### 4. Dynamic CORS — Phase 9 planned (NOT YET BUILT)
+
+Confirmed via `docs/phase-8-spec-gaps.md` that dynamic CORS was always deferred to Phase 9. Plan created:
+
+**3 new files:**
+- `Application/Interfaces/Services/IDynamicCorsService.cs`
+- `Infrastructure/Cors/DynamicCorsService.cs` — `IMemoryCache`, 60s TTL, DB fallback to config
+- `API/Cors/DynamicCorsPolicyProvider.cs` — implements `ICorsPolicyProvider`, validates Origin per-request
+
+**2 files to edit:**
+- `Program.cs` — replace startup CORS block with `AddCors()` + register services
+- `AppService.cs` — inject `IDynamicCorsService`, call `InvalidateCache()` after create/update/delete
+
+**Branch:** `feature/phase-9-dynamic-cors`  
+**Status:** Planned, ready for Cloud to implement tomorrow.
+
+---
+
+### Open Items for Next Session
+
+| # | Item | Repo | Notes |
+|---|---|---|---|
+| 1 | Build Phase 9 dynamic CORS | `flatplanet-security-platform` | Plan is done — Cloud to implement on `feature/phase-9-dynamic-cors` |
+| 2 | InfoSec Training startup crash | InfoSec-Training backend | Developer needs to send Azure Log Stream output |
+| 3 | Tifa docs update | `FlatPlanetHubApi` | Tifa agent hit token limit mid-task — resume: update README + CHANGELOG for v1.7.0 (netlifySiteUrl field, sync-cors endpoint, rate limit 1000/min) |
+| 4 | SP bug: `platform_owner` bypass missing in `AuthorizeAsync` | `flatplanet-security-platform` | P2 — Chris got 403 when no row in user_app_roles |
+
+---

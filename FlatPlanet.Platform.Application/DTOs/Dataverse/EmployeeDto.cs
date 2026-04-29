@@ -21,5 +21,5 @@ public sealed record EmployeeDto(
     [property: JsonPropertyName("_fp_activeclient_value@OData.Community.Display.V1.FormattedValue")]
     string? Client,
 
-    [property: JsonPropertyName("fp_activeclientofficer")]
+    [property: JsonPropertyName("_fp_activeclientofficer_value@OData.Community.Display.V1.FormattedValue")]
     string? ActiveClientOfficer);
