@@ -120,6 +120,7 @@ Full endpoint reference with request/response payloads: [`docs/platform-api-refe
 | `PUT` | `/api/projects/{id}` | Update project |
 | `DELETE` | `/api/projects/{id}` | Deactivate project |
 | `POST` | `/api/projects/{id}/sync-github-actions` | Re-sync GitHub Actions workflow and publish profile secret for projects where initial GitHub setup failed |
+| `POST` | `/api/admin/projects/{id}/sync-cors` | Retroactively apply CORS `AllowedOrigins` to a provisioned Azure App Service (platform_owner only) |
 
 ### Project Members
 
@@ -232,7 +233,7 @@ Two token types accepted, both validated against the same JWT secret:
 | Parameterized queries | All user values go through Dapper parameterization — no string-concatenated SQL |
 | Token storage | API tokens stored as SHA-256 hash — raw value never persisted |
 | SSL | Npgsql connects to Supabase with SSL required |
-| Rate limiting | 100 requests/min per user (fixed window) |
+| Rate limiting | 1,000 requests/min per user (fixed window) |
 
 ---
 

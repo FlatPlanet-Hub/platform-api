@@ -5,6 +5,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.4.0] — 2026-04-29
+
+### Added
+
+- **`POST /api/admin/projects/{id}/sync-cors`** — retroactively applies the CORS `AllowedOrigins` Azure App Service setting for provisioned projects. Reads the project's `netlify_site_url`, merges `Cors__AllowedOrigins__0` into the existing App Service config (non-destructive GET then PUT), and returns the app service name and origin set. Auth: Security Platform JWT with `platform_owner` on `dashboard-hub`. Returns `{ appServiceName, allowedOrigin, message }`.
+
+### Fixed
+
+- **Azure App Service provisioner — Linux runtime config** — `AzureAppServiceProvisioner` was using `WindowsFxVersion = "DOTNET|10.0"` and `NetFrameworkVersion = "v10.0"` (Windows-only ARM properties) on a Linux App Service plan. Corrected to `LinuxFxVersion = "DOTNETCORE|10.0"`. Without this fix, newly provisioned app services defaulted to .NET 6 and failed to start.
+- **Azure App Service provisioner — missing startup env vars** — `ASPNETCORE_URLS = http://0.0.0.0:8080` and `ASPNETCORE_ENVIRONMENT = Production` are now injected at provision time. Azure Linux App Services probe port 8080; .NET defaults to 5000, causing all health probes to return connection refused.
+- **Dataverse `fp_activeclientofficer` not returning** — `fp_activeclientofficer` is a lookup field in Dataverse. The `$select` now uses `_fp_activeclientofficer_value` and `EmployeeDto` deserializes from `_fp_activeclientofficer_value@OData.Community.Display.V1.FormattedValue`, matching the same pattern as `Client` (`_fp_activeclient_value`) and `ClientOpsLead` (`_fp_activereportingto_value`). Field was returning `null` for all employees — now returns the officer display name.
+- **Post-deploy health check** — `deploy.yml` now runs `curl --retry 6 --retry-delay 10` against `/health` after deployment. Cold-start failures that previously went unnoticed now fail the pipeline immediately.
+
+### Changed
+
+- **Rate limit raised to 1,000 req/min per user** — up from 100 req/min (fixed window).
+
+### Docs
+
+- Added `docs/bug-report-2026-04-28-linux-provisioner.md` — documents all four bugs: `WindowsFxVersion`, missing `ASPNETCORE_URLS`, SP CORS startup timeout, and missing post-deploy health checks.
+
+---
+
 ## [1.3.0] — 2026-04-15
 
 ### Added — FEAT-STORAGE-SCOPE: App_id Scoping for File Storage
