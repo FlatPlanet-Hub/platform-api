@@ -57,6 +57,25 @@ public sealed class QueryController : ApiControllerBase
         return Ok(ApiResponse<object?>.Ok(null, rowsAffected));
     }
 
+    [HttpPost("ddl")]
+    public async Task<ActionResult<ApiResponse<object?>>> Ddl([FromBody] DdlQueryRequest request)
+    {
+        var claims = GetClaims();
+        if (claims is null) return Forbid();
+
+        if (!claims.HasPermission("ddl"))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail("Missing 'ddl' permission."));
+
+        var (isValid, error) = SqlValidationHelper.ValidateDdlQuery(request.Sql);
+        if (!isValid)
+            return BadRequest(ApiResponse<object>.Fail(error!));
+
+        var rowsAffected = await _dbProxy.ExecuteDdlAsync(claims.Schema, request);
+        await _audit.LogAsync(GetUserId(), null, "query.ddl", claims.Schema,
+            new { sql = request.Sql[..Math.Min(request.Sql.Length, 200)] });
+        return Ok(ApiResponse<object?>.Ok(null, rowsAffected));
+    }
+
     private ProjectClaims? GetClaims() =>
         HttpContext.Items[ProjectScopeMiddleware.ClaimsKey] as ProjectClaims;
 }

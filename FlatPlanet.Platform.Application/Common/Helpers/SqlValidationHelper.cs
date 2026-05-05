@@ -10,6 +10,12 @@ public static partial class SqlValidationHelper
     private static readonly string[] WriteBlockedKeywords =
         ["drop", "alter", "create", "truncate", "grant", "revoke"];
 
+    private static readonly string[] DdlAllowedKeywords =
+        ["create", "alter", "drop", "truncate", "rename"];
+
+    private static readonly string[] DdlBlockedKeywords =
+        ["insert", "update", "delete", "select", "grant", "revoke"];
+
     [GeneratedRegex(@"^project_[a-z0-9][a-z0-9_]{2,62}$")]
     private static partial Regex SchemaNameRegex();
 
@@ -47,6 +53,28 @@ public static partial class SqlValidationHelper
         {
             if (ContainsKeyword(normalized, keyword))
                 return (false, $"Keyword '{keyword.ToUpper()}' is not allowed in write queries.");
+        }
+
+        return (true, null);
+    }
+
+    public static (bool isValid, string? error) ValidateDdlQuery(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            return (false, "SQL cannot be empty.");
+
+        var normalized = sql.ToLowerInvariant();
+
+        // Must start with an allowed DDL keyword
+        var startsWithDdl = DdlAllowedKeywords.Any(k => ContainsKeyword(normalized, k));
+        if (!startsWithDdl)
+            return (false, $"DDL queries must use one of: {string.Join(", ", DdlAllowedKeywords.Select(k => k.ToUpper()))}.");
+
+        // Block DML and query keywords
+        foreach (var keyword in DdlBlockedKeywords)
+        {
+            if (ContainsKeyword(normalized, keyword))
+                return (false, $"Keyword '{keyword.ToUpper()}' is not allowed in DDL queries.");
         }
 
         return (true, null);

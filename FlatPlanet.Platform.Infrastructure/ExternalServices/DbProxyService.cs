@@ -177,6 +177,16 @@ public sealed class DbProxyService : IDbProxyService
         return await conn.ExecuteAsync(request.Sql, parameters);
     }
 
+    public async Task<int> ExecuteDdlAsync(string schema, DdlQueryRequest request)
+    {
+        await using var conn = _db.CreateConnection();
+        await conn.OpenAsync();
+        await SetSearchPathAsync(conn, schema);
+
+        var parameters = BuildParameters(request.Parameters);
+        return await conn.ExecuteAsync(request.Sql, parameters);
+    }
+
     private static DynamicParameters? BuildParameters(Dictionary<string, JsonElement>? raw)
     {
         if (raw is null) return null;

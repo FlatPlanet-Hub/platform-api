@@ -14,6 +14,12 @@ public sealed class WriteQueryRequest
     public Dictionary<string, System.Text.Json.JsonElement>? Parameters { get; init; }
 }
 
+public sealed class DdlQueryRequest
+{
+    public string Sql { get; init; } = string.Empty;
+    public Dictionary<string, System.Text.Json.JsonElement>? Parameters { get; init; }
+}
+
 public sealed class CreateTableRequest
 {
     public string TableName { get; init; } = string.Empty;

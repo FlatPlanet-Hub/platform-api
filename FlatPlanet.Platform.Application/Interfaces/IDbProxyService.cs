@@ -16,4 +16,5 @@ public interface IDbProxyService
 
     Task<IEnumerable<dynamic>> ExecuteReadAsync(string schema, ReadQueryRequest request);
     Task<int> ExecuteWriteAsync(string schema, WriteQueryRequest request);
+    Task<int> ExecuteDdlAsync(string schema, DdlQueryRequest request);
 }
