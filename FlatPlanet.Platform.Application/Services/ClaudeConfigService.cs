@@ -47,7 +47,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         var rawToken = _jwtService.GenerateApiToken(
             userId, userName, userEmail,
             project.AppId, project.AppSlug ?? project.SchemaName, project.SchemaName,
-            permissions, 30, out var expiresAt);
+            permissions, 180, out var expiresAt);
 
         var tokenHash = TokenHasher.Hash(rawToken);
 
@@ -174,7 +174,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         var rawToken = _jwtService.GenerateApiToken(
             userId, actorEmail, actorEmail,
             project.AppId, project.AppSlug ?? project.SchemaName, project.SchemaName,
-            permissions, 30, out var expiresAt);
+            permissions, 180, out var expiresAt);
 
         var tokenHash = TokenHasher.Hash(rawToken);
 
