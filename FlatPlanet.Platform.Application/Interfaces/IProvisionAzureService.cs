@@ -17,4 +17,10 @@ public interface IProvisionAzureService
         string userEmail);
 
     Task<SyncCorsResponse> SyncCorsAsync(Guid projectId, Guid userId);
+
+    /// <summary>
+    /// Pushes the new platform API token to the project's Azure App Service app settings.
+    /// Returns immediately (no-op) if the project has no App Service provisioned yet.
+    /// </summary>
+    Task SyncTokenAsync(Guid projectId, string newToken);
 }

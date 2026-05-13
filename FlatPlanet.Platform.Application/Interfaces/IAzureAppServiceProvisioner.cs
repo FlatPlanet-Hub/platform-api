@@ -28,4 +28,10 @@ public interface IAzureAppServiceProvisioner
     /// App Service without touching any other settings.
     /// </summary>
     Task UpdateCorsOriginAsync(string appServiceName, string allowedOrigin);
+
+    /// <summary>
+    /// Merges (or replaces) a single app setting key/value on an already-provisioned
+    /// App Service without touching any other settings.
+    /// </summary>
+    Task UpdateAppSettingAsync(string appServiceName, string key, string value);
 }

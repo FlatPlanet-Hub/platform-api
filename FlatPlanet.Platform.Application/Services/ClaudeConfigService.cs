@@ -17,6 +17,8 @@ public sealed class ClaudeConfigService : IClaudeConfigService
     private readonly IAuditService _audit;
     private readonly ISecurityPlatformService _securityPlatform;
     private readonly INetlifyService _netlify;
+    // Lazy resolves the circular dependency: ProvisionAzureService → IClaudeConfigService → IProvisionAzureService
+    private readonly Lazy<IProvisionAzureService> _provisionAzureService;
     private readonly GitHubOptions _github;
     private readonly ILogger<ClaudeConfigService> _logger;
 
@@ -27,6 +29,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         IAuditService audit,
         ISecurityPlatformService securityPlatform,
         INetlifyService netlify,
+        Lazy<IProvisionAzureService> provisionAzureService,
         IOptions<GitHubOptions> github,
         ILogger<ClaudeConfigService> logger)
     {
@@ -36,6 +39,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         _audit = audit;
         _securityPlatform = securityPlatform;
         _netlify = netlify;
+        _provisionAzureService = provisionAzureService;
         _github = github.Value;
         _logger = logger;
     }
@@ -67,15 +71,6 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         await _audit.LogAsync(userId, project.AppId, "claude_config.generated", "api_tokens",
             new { tokenId = stored.Id });
 
-        // Fire-and-forget: push VITE_PLATFORM_TOKEN to Netlify if site is configured
-        if (!string.IsNullOrWhiteSpace(project.NetlifySiteId))
-        {
-            _ = _netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", rawToken)
-                .ContinueWith(t => _logger.LogWarning(t.Exception,
-                    "Failed to push VITE_PLATFORM_TOKEN to Netlify site {SiteId}", project.NetlifySiteId),
-                    TaskContinuationOptions.OnlyOnFaulted);
-        }
-
         return new ClaudeConfigResponse
         {
             Content   = RenderTemplate(project, rawToken, expiresAt, baseUrl, _github),
@@ -93,14 +88,26 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         if (project.AppId is null)
             throw new InvalidOperationException($"Project {projectId} is not linked to an IAM app.");
 
+        // Step 1: Generate new token first (DB write — old token still valid during Azure restart window)
+        var result = await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
+
+        // Step 2: Dispatch Azure App Settings push (fire-and-forget — old token stays valid ~30-60s during restart)
+        if (result.RawToken is not null)
+        {
+            _ = _provisionAzureService.Value.SyncTokenAsync(project.Id, result.RawToken)
+                .ContinueWith(t => _logger.LogWarning(t.Exception,
+                    "Azure token sync failed for project {ProjectId}", project.Id),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        // Step 3: Revoke old tokens (after Azure push is dispatched)
         var tokens = await _apiTokenRepo.GetActiveByUserIdAsync(userId);
-        foreach (var t in tokens.Where(t => t.AppId == project.AppId))
+        foreach (var t in tokens.Where(t => t.AppId == project.AppId && t.Id != result.TokenId))
             await _apiTokenRepo.RevokeAsync(t.Id, "regenerated");
 
         await _audit.LogAsync(userId, project.AppId, "claude_config.revoked_all", "api_tokens");
-        var result = await GenerateAsync(userId, projectId, baseUrl, userName, userEmail);
 
-        // Fire-and-forget: push VITE_PLATFORM_TOKEN to Netlify if site is configured
+        // Step 4: Fire Netlify push (once, fire-and-forget)
         if (!string.IsNullOrWhiteSpace(project.NetlifySiteId) && result.RawToken is not null)
         {
             _ = _netlify.PushEnvironmentVariableAsync(project.NetlifySiteId, "VITE_PLATFORM_TOKEN", result.RawToken)

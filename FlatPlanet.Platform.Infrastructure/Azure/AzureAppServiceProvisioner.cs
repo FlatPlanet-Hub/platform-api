@@ -10,24 +10,33 @@ using Microsoft.Extensions.Options;
 
 namespace FlatPlanet.Platform.Infrastructure.Azure;
 
-public sealed class AzureAppServiceProvisioner(
-    IOptions<AzureSettings> azureOptions,
-    IOptions<SupabaseSettings> supabaseOptions,
-    ILogger<AzureAppServiceProvisioner> logger) : IAzureAppServiceProvisioner
+public sealed class AzureAppServiceProvisioner : IAzureAppServiceProvisioner
 {
-    private readonly AzureSettings _azure = azureOptions.Value;
-    private readonly SupabaseSettings _supabase = supabaseOptions.Value;
+    private readonly AzureSettings _azure;
+    private readonly SupabaseSettings _supabase;
+    private readonly ILogger<AzureAppServiceProvisioner> _logger;
+    private readonly DefaultAzureCredential _credential;
+    private readonly ArmClient _armClient;
+
+    public AzureAppServiceProvisioner(
+        IOptions<AzureSettings> azureOptions,
+        IOptions<SupabaseSettings> supabaseOptions,
+        ILogger<AzureAppServiceProvisioner> logger)
+    {
+        _azure      = azureOptions.Value;
+        _supabase   = supabaseOptions.Value;
+        _logger     = logger;
+        _credential = new DefaultAzureCredential();
+        _armClient  = new ArmClient(_credential, _azure.SubscriptionId);
+    }
 
     public async Task<(string AppServiceName, string AppServiceUrl, string PublishProfileXml)> ProvisionAsync(
         string appServiceName,
         AppServiceEnvVars envVars)
     {
-        var credential = new DefaultAzureCredential();
-        var armClient = new ArmClient(credential, _azure.SubscriptionId);
-
         var rgResourceId = global::Azure.Core.ResourceIdentifier.Parse(
             $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}");
-        var resourceGroup = armClient.GetResourceGroupResource(rgResourceId);
+        var resourceGroup = _armClient.GetResourceGroupResource(rgResourceId);
 
         var webSiteCollection = resourceGroup.GetWebSites();
 
@@ -92,7 +101,7 @@ public sealed class AzureAppServiceProvisioner(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to update application settings for App Service '{AppServiceName}'", appServiceName);
+            _logger.LogError(ex, "Failed to update application settings for App Service '{AppServiceName}'", appServiceName);
             throw new Exception($"App Service '{appServiceName}' was created but application settings could not be applied: {ex.Message}");
         }
 
@@ -104,12 +113,12 @@ public sealed class AzureAppServiceProvisioner(
 
         if (string.IsNullOrWhiteSpace(hostName))
         {
-            logger.LogWarning("Azure did not return a DefaultHostName for '{AppServiceName}'. Falling back to constructed URL.", appServiceName);
+            _logger.LogWarning("Azure did not return a DefaultHostName for '{AppServiceName}'. Falling back to constructed URL.", appServiceName);
             hostName = $"{appServiceName}.azurewebsites.net";
         }
 
         var url = $"https://{hostName}";
-        logger.LogInformation("Provisioned Azure App Service '{AppServiceName}' at {Url}", appServiceName, url);
+        _logger.LogInformation("Provisioned Azure App Service '{AppServiceName}' at {Url}", appServiceName, url);
 
         // Fetch publish profile XML for GitHub Actions secret
         string publishProfileXml;
@@ -121,7 +130,7 @@ public sealed class AzureAppServiceProvisioner(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}' — CI/CD secret will not be set", appServiceName);
+            _logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}' — CI/CD secret will not be set", appServiceName);
             publishProfileXml = string.Empty;
         }
 
@@ -132,12 +141,9 @@ public sealed class AzureAppServiceProvisioner(
     {
         try
         {
-            var credential = new DefaultAzureCredential();
-            var armClient = new ArmClient(credential, _azure.SubscriptionId);
-
             var siteResourceId = global::Azure.Core.ResourceIdentifier.Parse(
                 $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}/providers/Microsoft.Web/sites/{appServiceName}");
-            var site = armClient.GetWebSiteResource(siteResourceId);
+            var site = _armClient.GetWebSiteResource(siteResourceId);
 
             var profileResponse = await site.GetPublishingProfileXmlWithSecretsAsync(new CsmPublishingProfile());
             using var reader = new System.IO.StreamReader(profileResponse.Value);
@@ -145,19 +151,16 @@ public sealed class AzureAppServiceProvisioner(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}'", appServiceName);
+            _logger.LogWarning(ex, "Could not fetch publish profile for '{AppServiceName}'", appServiceName);
             return string.Empty;
         }
     }
 
     public async Task UpdateCorsOriginAsync(string appServiceName, string allowedOrigin)
     {
-        var credential = new DefaultAzureCredential();
-        var armClient  = new ArmClient(credential, _azure.SubscriptionId);
-
         var siteResourceId = global::Azure.Core.ResourceIdentifier.Parse(
             $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}/providers/Microsoft.Web/sites/{appServiceName}");
-        var site = armClient.GetWebSiteResource(siteResourceId);
+        var site = _armClient.GetWebSiteResource(siteResourceId);
 
         // GET existing settings so we don't clobber anything
         var existing = await site.GetApplicationSettingsAsync();
@@ -170,9 +173,31 @@ public sealed class AzureAppServiceProvisioner(
 
         await site.UpdateApplicationSettingsAsync(merged);
 
-        logger.LogInformation(
+        _logger.LogInformation(
             "Updated Cors__AllowedOrigins__0 on App Service '{AppServiceName}' → {Origin}",
             appServiceName, allowedOrigin);
+    }
+
+    public async Task UpdateAppSettingAsync(string appServiceName, string key, string value)
+    {
+        var siteResourceId = global::Azure.Core.ResourceIdentifier.Parse(
+            $"/subscriptions/{_azure.SubscriptionId}/resourceGroups/{_azure.ResourceGroupName}/providers/Microsoft.Web/sites/{appServiceName}");
+        var site = _armClient.GetWebSiteResource(siteResourceId);
+
+        // GET existing settings so we don't clobber anything
+        var existing = await site.GetApplicationSettingsAsync();
+        var merged   = new AppServiceConfigurationDictionary();
+        foreach (var kv in existing.Value.Properties)
+            merged.Properties[kv.Key] = kv.Value;
+
+        // Add / replace the target setting
+        merged.Properties[key] = value;
+
+        await site.UpdateApplicationSettingsAsync(merged);
+
+        _logger.LogInformation(
+            "Updated app setting '{Key}' on App Service '{AppServiceName}'",
+            key, appServiceName);
     }
 
     private string BuildConnectionString(string schemaName) =>
