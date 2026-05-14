@@ -280,3 +280,63 @@ Confirmed via `docs/phase-8-spec-gaps.md` that dynamic CORS was always deferred 
 | 4 | SP bug: `platform_owner` bypass missing in `AuthorizeAsync` | `flatplanet-security-platform` | P2 — Chris got 403 when no row in user_app_roles |
 
 ---
+
+---
+
+## Session: DB Connection Pool Fix
+
+**Date**: 2026-05-14
+**Branch**: `claude/eager-shirley-b8bc72` → merged to `main` via PRs #34–#37
+
+---
+
+### What Was Done
+
+Fixed persistent cold-start timeouts on the Platform API (`flatplanet-api` Azure App Service). Clients were seeing `[platformApi] still timing out — final retry` and `AbortError: signal is aborted without reason` across multiple frontend apps.
+
+**Root cause of original PR #33 failure:**
+PR #33 added `Connection Timeout=10` to the Npgsql connection string. On a cold Azure App Service, the Supabase SSL handshake takes >10s — every `OpenAsync()` call threw, taking the entire app down. Health check also started probing DB with `SELECT 1`, causing deploy pipeline failures (curl returned 502 during restart window).
+
+**PRs merged this session:**
+
+| PR | Change | Outcome |
+|---|---|---|
+| #34 | `Minimum Pool Size=0→1` + keepalive params | Broke — TCP socket keepalives (`Tcp Keepalives Idle/Interval/Retries`) rejected by Azure Linux containers with `setsockopt` error |
+| #35 | Remove TCP socket keepalives + remove health check from deploy pipeline | Fixed socket error; deploy pipeline no longer fails |
+| #36 | Align with SP settings: `Max Auto Prepare=0`, `Command Timeout=30`, `Timeout=30`, `Max Pool Size=10→20`, add `Keepalive=30` | Broke — `Keepalive=30` with PgBouncer transaction mode caused pool connections to block, hanging all requests for 230s |
+| #37 | Remove `Keepalive=30`, revert `Minimum Pool Size=1→0` | Fixed — same conclusion reached by SP team independently |
+
+**Final settled connection string settings:**
+```
+Minimum Pool Size=0        — connections open on demand, close naturally
+Maximum Pool Size=20
+Max Auto Prepare=0         — required for PgBouncer transaction mode (port 6543)
+Command Timeout=30         — per-query execution limit
+Timeout=30                 — connection open timeout (safe at 30s, unlike the 10s that killed PR #33)
+No Reset On Close=true
+SSL Mode=Require
+Trust Server Certificate=true
+```
+
+**Lessons learned:**
+- `Minimum Pool Size > 0` → background maintenance loops burning thread pool threads when Supabase drops idle connections. Don't use it.
+- `Keepalive=30` → incompatible with PgBouncer transaction mode. Keepalive queries compete for backend connections and can block the pool.
+- `Connection Timeout=10` → too aggressive for cold Azure + Supabase. Leave at default (15s) or set to 30s.
+- `Tcp Keepalives Idle/Interval/Retries` → Linux socket-level options, rejected by Azure App Service Linux containers.
+- Deploy health check (`curl -f /health`) → fires during Azure restart window, always gets 502. Removed from pipeline.
+
+**Deploy incident:**
+Multiple rapid deploys today left Azure App Service with a stuck Kudu deployment lock. Cleared via: Kudu Advanced Tools → Debug Console → `rm /home/site/locks/deployment.lock`. Final deploy done manually.
+
+---
+
+### Open Items for Next Session
+
+| # | Item | Repo | Notes |
+|---|---|---|---|
+| 1 | Build Phase 9 dynamic CORS | `flatplanet-security-platform` | Plan is done — Cloud to implement on `feature/phase-9-dynamic-cors` |
+| 2 | InfoSec Training startup crash | InfoSec-Training backend | Developer needs to send Azure Log Stream output |
+| 3 | Tifa docs update | `FlatPlanetHubApi` | Resume: update README + CHANGELOG for v1.7.0 (netlifySiteUrl field, sync-cors endpoint, rate limit 1000/min) |
+| 4 | SP bug: `platform_owner` bypass missing in `AuthorizeAsync` | `flatplanet-security-platform` | P2 — Chris got 403 when no row in user_app_roles |
+
+---
