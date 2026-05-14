@@ -9,5 +9,12 @@ public sealed class SupabaseSettings
     public string AdminPassword { get; init; } = string.Empty;
 
     public string BuildConnectionString() =>
-        $"Host={Host};Port={Port};Database={Database};Username={AdminUser};Password={AdminPassword};SSL Mode=Require;Trust Server Certificate=true;No Reset On Close=true;Minimum Pool Size=0;Maximum Pool Size=10;";
+        $"Host={Host};Port={Port};Database={Database};Username={AdminUser};Password={AdminPassword};" +
+        $"SSL Mode=Require;Trust Server Certificate=true;" +
+        $"No Reset On Close=true;" +
+        $"Minimum Pool Size=1;Maximum Pool Size=10;" +
+        $"Keepalive=30;" +
+        $"Tcp Keepalives Idle=60;" +
+        $"Tcp Keepalives Interval=10;" +
+        $"Tcp Keepalives Retries=3;";
 }
