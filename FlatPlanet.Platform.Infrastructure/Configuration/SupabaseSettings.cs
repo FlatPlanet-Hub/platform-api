@@ -12,8 +12,7 @@ public sealed class SupabaseSettings
         $"Host={Host};Port={Port};Database={Database};Username={AdminUser};Password={AdminPassword};" +
         $"SSL Mode=Require;Trust Server Certificate=true;" +
         $"No Reset On Close=true;" +
-        $"Keepalive=30;" +
-        $"Minimum Pool Size=1;Maximum Pool Size=20;" +
+        $"Minimum Pool Size=0;Maximum Pool Size=20;" +
         $"Max Auto Prepare=0;" +
         $"Command Timeout=30;" +
         $"Timeout=30;";
