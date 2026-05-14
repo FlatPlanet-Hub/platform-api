@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
+using FlatPlanet.Platform.API.HealthChecks;
 using FlatPlanet.Platform.API.Middleware;
 using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Infrastructure.Configuration;
@@ -103,8 +104,9 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
-// Health checks
-builder.Services.AddHealthChecks();
+// Health checks — includes DB probe so /health fails fast if Supabase is unreachable
+builder.Services.AddHealthChecks()
+    .AddCheck<DbHealthCheck>("database");
 
 // Logging — mask sensitive headers
 builder.Services.AddHttpLogging(logging =>

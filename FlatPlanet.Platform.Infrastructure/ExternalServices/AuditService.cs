@@ -9,6 +9,7 @@ public sealed class AuditService(IDbConnectionFactory db) : IAuditService
     public async Task LogAsync(Guid? userId, Guid? appId, string eventType, string? resource = null, object? details = null, string? ipAddress = null)
     {
         await using var conn = db.CreateConnection();
+        await conn.OpenAsync();
         var detailsJson = details is not null ? JsonSerializer.Serialize(details) : null;
 
         // Write to auth_audit_log (Feature 6)
@@ -21,6 +22,7 @@ public sealed class AuditService(IDbConnectionFactory db) : IAuditService
     public async Task<object> QueryAsync(Guid? userId, Guid? appId, string? eventType, DateTime? from, DateTime? to, int page, int pageSize)
     {
         await using var conn = db.CreateConnection();
+        await conn.OpenAsync();
 
         var conditions = new List<string>();
         if (userId.HasValue) conditions.Add("user_id = @user_id::uuid");
