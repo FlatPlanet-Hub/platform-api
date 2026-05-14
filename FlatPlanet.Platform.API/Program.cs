@@ -123,6 +123,7 @@ var app = builder.Build();
 // SSL handshake cost. Runs in background — startup is not blocked if DB is slow.
 _ = Task.Run(async () =>
 {
+    // 10-second budget covers both connections combined — intentional, not per-connection.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
     try
     {
