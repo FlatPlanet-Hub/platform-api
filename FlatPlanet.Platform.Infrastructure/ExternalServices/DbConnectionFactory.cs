@@ -13,5 +13,13 @@ public sealed class DbConnectionFactory : IDbConnectionFactory
     public DbConnectionFactory(IOptions<SupabaseSettings> settings)
         => _connectionString = settings.Value.BuildConnectionString();
 
+    [Obsolete("Use CreateConnectionAsync(CancellationToken) instead.")]
     public DbConnection CreateConnection() => new NpgsqlConnection(_connectionString);
+
+    public async Task<DbConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        return conn;
+    }
 }

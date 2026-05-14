@@ -15,6 +15,7 @@ public sealed class ProvisionAzureService(
     ISecurityPlatformService securityPlatform,
     IGitHubRepoService gitHubRepo,
     INetlifyService netlify,
+    IAuditService audit,
     IOptions<JwtSettings> jwtOptions,
     ILogger<ProvisionAzureService> logger) : IProvisionAzureService
 {
@@ -264,6 +265,35 @@ public sealed class ProvisionAzureService(
             project.AzureAppServiceName,
             project.NetlifySiteUrl,
             "Cors__AllowedOrigins__0 updated successfully.");
+    }
+
+    public async Task SyncTokenAsync(Guid projectId, string newToken)
+    {
+        var project = await projectRepo.GetByIdAsync(projectId);
+        if (project is null || string.IsNullOrWhiteSpace(project.AzureAppServiceName))
+            return;
+
+        try
+        {
+            await provisioner.UpdateAppSettingAsync(project.AzureAppServiceName, "PlatformApi__Token", newToken);
+
+            logger.LogInformation(
+                "PlatformApi__Token synced to Azure App Service '{AppServiceName}' for project {ProjectId}",
+                project.AzureAppServiceName, projectId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Failed to sync PlatformApi__Token to Azure App Service '{AppServiceName}' for project {ProjectId}",
+                project.AzureAppServiceName, projectId);
+
+            await audit.LogAsync(
+                userId: null,
+                appId:  project.AppId,
+                eventType: "azure.token_sync_failed",
+                resource:  "azure_app_settings",
+                details:   new { projectId, appServiceName = project.AzureAppServiceName, error = ex.Message });
+        }
     }
 
     private static string BuildAppServiceName(string slug)
