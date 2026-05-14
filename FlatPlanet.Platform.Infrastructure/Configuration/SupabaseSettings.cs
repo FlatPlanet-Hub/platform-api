@@ -13,8 +13,5 @@ public sealed class SupabaseSettings
         $"SSL Mode=Require;Trust Server Certificate=true;" +
         $"No Reset On Close=true;" +
         $"Minimum Pool Size=1;Maximum Pool Size=10;" +
-        $"Keepalive=30;" +
-        $"Tcp Keepalives Idle=60;" +
-        $"Tcp Keepalives Interval=10;" +
-        $"Tcp Keepalives Retries=3;";
+        $"Keepalive=30;";
 }
