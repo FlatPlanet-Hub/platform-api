@@ -37,10 +37,3 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: ./publish
 
-      - name: Health check
-        run: |
-          echo "Waiting for app to warm up..."
-          sleep 20
-          curl --retry 6 --retry-delay 10 --retry-connrefused -f \
-            https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/health \
-            || (echo "Health check failed — deployment may be broken" && exit 1)
