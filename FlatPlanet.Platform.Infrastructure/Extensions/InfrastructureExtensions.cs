@@ -110,9 +110,6 @@ public static class InfrastructureExtensions
         // Azure provisioning
         services.AddScoped<IAzureAppServiceProvisioner, AzureAppServiceProvisioner>();
         services.AddScoped<IProvisionAzureService, ProvisionAzureService>();
-        // Break circular dependency: ClaudeConfigService ↔ ProvisionAzureService
-        services.AddScoped<Lazy<IProvisionAzureService>>(sp =>
-            new Lazy<IProvisionAzureService>(() => sp.GetRequiredService<IProvisionAzureService>()));
 
         // File storage
         services.AddScoped<IFileRepository, FileRepository>();
