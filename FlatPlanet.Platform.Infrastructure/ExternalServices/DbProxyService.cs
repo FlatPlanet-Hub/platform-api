@@ -106,9 +106,47 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<FullSchemaDto> GetFullSchemaAsync(string schema)
     {
-        var tables = await GetTablesAsync(schema);
-        var columns = await GetColumnsAsync(schema);
-        var relationships = await GetRelationshipsAsync(schema);
+        // Single connection for all three queries — avoids 3 sequential round trips to the DB.
+        await using var conn = _db.CreateConnection();
+        await conn.OpenAsync();
+
+        const string tablesSql = """
+            SELECT table_name AS TableName, table_type AS TableType
+            FROM information_schema.tables
+            WHERE table_schema = @schema
+            ORDER BY table_name
+            """;
+
+        const string columnsSql = """
+            SELECT table_name AS TableName, column_name AS ColumnName,
+                   data_type AS DataType, is_nullable = 'YES' AS IsNullable,
+                   column_default AS ColumnDefault, ordinal_position AS OrdinalPosition
+            FROM information_schema.columns
+            WHERE table_schema = @schema
+            ORDER BY table_name, ordinal_position
+            """;
+
+        const string relationshipsSql = """
+            SELECT
+                tc.constraint_name AS ConstraintName,
+                tc.table_name AS TableName,
+                kcu.column_name AS ColumnName,
+                ccu.table_name AS ForeignTableName,
+                ccu.column_name AS ForeignColumnName
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+                ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = @schema
+            ORDER BY tc.table_name, kcu.column_name
+            """;
+
+        var p = new { schema };
+        var tables = await conn.QueryAsync<TableInfoDto>(tablesSql, p);
+        var columns = await conn.QueryAsync<ColumnInfoDto>(columnsSql, p);
+        var relationships = await conn.QueryAsync<RelationshipDto>(relationshipsSql, p);
 
         return new FullSchemaDto
         {

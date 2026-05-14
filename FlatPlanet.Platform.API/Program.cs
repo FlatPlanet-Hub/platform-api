@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using FlatPlanet.Platform.API.Middleware;
+using FlatPlanet.Platform.Application.Interfaces;
 using FlatPlanet.Platform.Infrastructure.Configuration;
 using FlatPlanet.Platform.Infrastructure.Extensions;
 
@@ -39,12 +40,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var msg = context.Exception.Message.Replace(Environment.NewLine, " ");
                 Console.WriteLine($"[JWT] Auth failed ({context.Exception.GetType().Name}): {msg}");
-                Console.WriteLine($"[JWT] Issuer={jwtSettings.Issuer} Audience={jwtSettings.Audience} KeyLen={jwtSettings.SecretKey?.Length}");
-                return Task.CompletedTask;
-            },
-            OnTokenValidated = _ =>
-            {
-                Console.WriteLine("[JWT] Token validated OK");
                 return Task.CompletedTask;
             }
         };
@@ -121,6 +116,25 @@ builder.Services.AddHttpLogging(logging =>
 });
 
 var app = builder.Build();
+
+// Pre-warm the DB connection pool so the first real request doesn't pay the cold-start
+// SSL handshake cost. Runs in background — startup is not blocked if DB is slow.
+_ = Task.Run(async () =>
+{
+    try
+    {
+        var dbFactory = app.Services.GetRequiredService<IDbConnectionFactory>();
+        await using var c1 = dbFactory.CreateConnection();
+        await c1.OpenAsync();
+        await using var c2 = dbFactory.CreateConnection();
+        await c2.OpenAsync();
+        app.Logger.LogInformation("[DB] Connection pool pre-warmed.");
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "[DB] Pool pre-warm failed — first request may be slower.");
+    }
+});
 
 app.UseHttpLogging();
 
