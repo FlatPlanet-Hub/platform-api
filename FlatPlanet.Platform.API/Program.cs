@@ -123,13 +123,12 @@ var app = builder.Build();
 // SSL handshake cost. Runs in background — startup is not blocked if DB is slow.
 _ = Task.Run(async () =>
 {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
     try
     {
         var dbFactory = app.Services.GetRequiredService<IDbConnectionFactory>();
-        await using var c1 = dbFactory.CreateConnection();
-        await c1.OpenAsync();
-        await using var c2 = dbFactory.CreateConnection();
-        await c2.OpenAsync();
+        await using var c1 = await dbFactory.CreateConnectionAsync(cts.Token);
+        await using var c2 = await dbFactory.CreateConnectionAsync(cts.Token);
         app.Logger.LogInformation("[DB] Connection pool pre-warmed.");
     }
     catch (Exception ex)

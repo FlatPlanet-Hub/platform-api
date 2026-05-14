@@ -16,12 +16,17 @@ public sealed class DbHealthCheck(IDbConnectionFactory db) : IHealthCheck
     {
         try
         {
-            await using var conn = db.CreateConnection();
-            await conn.OpenAsync(cancellationToken);
+            await using var conn = await db.CreateConnectionAsync(cancellationToken);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT 1";
+            cmd.CommandTimeout = 5;
             await cmd.ExecuteScalarAsync(cancellationToken);
             return HealthCheckResult.Healthy();
+        }
+        catch (OperationCanceledException)
+        {
+            // Health check was cancelled — propagate so ASP.NET Core handles it correctly.
+            throw;
         }
         catch (Exception ex)
         {

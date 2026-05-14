@@ -14,8 +14,7 @@ public sealed class AuditLogRepository(IDbConnectionFactory db, ILogger<AuditLog
         try
         {
             var detailsJson = details is not null ? JsonSerializer.Serialize(details) : null;
-            await using var conn = db.CreateConnection();
-            await conn.OpenAsync();
+            await using var conn = await db.CreateConnectionAsync();
             await conn.ExecuteAsync("""
                 INSERT INTO platform.audit_log (actor_id, actor_email, action, target_type, target_id, details, ip_address)
                 VALUES (@actor_id::uuid, @actor_email, @action, @target_type, @target_id::uuid, @details::jsonb, @ip_address)
@@ -40,8 +39,7 @@ public sealed class AuditLogRepository(IDbConnectionFactory db, ILogger<AuditLog
         var where  = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : string.Empty;
         var offset = (page - 1) * pageSize;
 
-        await using var conn = db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await db.CreateConnectionAsync();
         return await conn.QueryAsync<AuditLogDto>($"""
             SELECT id, actor_email, action, target_type, target_id, created_at
             FROM platform.audit_log
@@ -56,8 +54,7 @@ public sealed class AuditLogRepository(IDbConnectionFactory db, ILogger<AuditLog
     {
         try
         {
-            await using var conn = db.CreateConnection();
-            await conn.OpenAsync();
+            await using var conn = await db.CreateConnectionAsync();
             await conn.ExecuteAsync("""
                 DELETE FROM platform.audit_log
                 WHERE created_at < now() - (@retention_days || ' days')::INTERVAL

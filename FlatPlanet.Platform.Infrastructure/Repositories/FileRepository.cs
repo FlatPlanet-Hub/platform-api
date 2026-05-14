@@ -12,7 +12,7 @@ public class FileRepository : IFileRepository
 
     public async Task<PlatformFile?> GetByIdAsync(Guid id, Guid? appId = null)
     {
-        await using var conn = _db.CreateConnection();
+        await using var conn = await _db.CreateConnectionAsync();
         var sql = "SELECT * FROM platform.files WHERE id = @id::uuid AND is_deleted = FALSE";
         if (appId.HasValue) sql += " AND app_id = @appId::uuid";
         return await conn.QuerySingleOrDefaultAsync<PlatformFile>(sql, new { id, appId });
@@ -20,7 +20,7 @@ public class FileRepository : IFileRepository
 
     public async Task<IEnumerable<PlatformFile>> ListAsync(string businessCode, string? category, string[]? tags, Guid? appId = null, Guid? uploadedBy = null)
     {
-        await using var conn = _db.CreateConnection();
+        await using var conn = await _db.CreateConnectionAsync();
         var sql = "SELECT * FROM platform.files WHERE business_code = @businessCode AND is_deleted = FALSE";
         if (appId.HasValue) sql += " AND app_id = @appId::uuid";
         if (uploadedBy.HasValue) sql += " AND uploaded_by = @uploadedBy::uuid AND app_id IS NULL";
@@ -32,7 +32,7 @@ public class FileRepository : IFileRepository
 
     public async Task<Guid> InsertAsync(PlatformFile file)
     {
-        await using var conn = _db.CreateConnection();
+        await using var conn = await _db.CreateConnectionAsync();
         return await conn.ExecuteScalarAsync<Guid>("""
             INSERT INTO platform.files
                 (id, app_id, business_code, category, original_name, blob_name, content_type, file_size_bytes, uploaded_by, tags, created_at)
@@ -56,7 +56,7 @@ public class FileRepository : IFileRepository
 
     public async Task SoftDeleteAsync(Guid id, DateTime deletedAt)
     {
-        await using var conn = _db.CreateConnection();
+        await using var conn = await _db.CreateConnectionAsync();
         await conn.ExecuteAsync(
             "UPDATE platform.files SET is_deleted = TRUE, deleted_at = @deletedAt WHERE id = @id::uuid",
             new { id, deletedAt });

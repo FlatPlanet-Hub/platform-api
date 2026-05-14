@@ -5,4 +5,5 @@ namespace FlatPlanet.Platform.Application.Interfaces;
 public interface IDbConnectionFactory
 {
     DbConnection CreateConnection();
+    Task<DbConnection> CreateConnectionAsync(CancellationToken cancellationToken = default);
 }

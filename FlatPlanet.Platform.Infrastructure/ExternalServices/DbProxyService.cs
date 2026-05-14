@@ -45,8 +45,7 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<IEnumerable<TableInfoDto>> GetTablesAsync(string schema)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
 
         const string sql = """
             SELECT table_name AS TableName, table_type AS TableType
@@ -60,8 +59,7 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<IEnumerable<ColumnInfoDto>> GetColumnsAsync(string schema, string? tableName = null)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
 
         var sql = """
             SELECT table_name AS TableName, column_name AS ColumnName,
@@ -81,8 +79,7 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<IEnumerable<RelationshipDto>> GetRelationshipsAsync(string schema)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
 
         const string sql = """
             SELECT
@@ -107,8 +104,7 @@ public sealed class DbProxyService : IDbProxyService
     public async Task<FullSchemaDto> GetFullSchemaAsync(string schema)
     {
         // Single connection for all three queries — avoids 3 sequential round trips to the DB.
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
 
         const string tablesSql = """
             SELECT table_name AS TableName, table_type AS TableType
@@ -158,16 +154,14 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task CreateSchemaAsync(string schema)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         await conn.ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {QuoteIdentifier(schema)}");
     }
 
     public async Task CreateTableAsync(string schema, CreateTableRequest request)
     {
         var ddl = BuildCreateTableSql(schema, request);
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         await conn.ExecuteAsync(ddl);
 
         if (request.EnableRls)
@@ -180,8 +174,7 @@ public sealed class DbProxyService : IDbProxyService
     public async Task AlterTableAsync(string schema, AlterTableRequest request)
     {
         var statements = BuildAlterTableSql(schema, request);
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
 
         foreach (var stmt in statements)
             await conn.ExecuteAsync(stmt);
@@ -189,16 +182,14 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task DropTableAsync(string schema, string tableName)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         var tableFqn = $"{QuoteIdentifier(schema)}.{QuoteIdentifier(tableName)}";
         await conn.ExecuteAsync($"DROP TABLE IF EXISTS {tableFqn}");
     }
 
     public async Task<IEnumerable<dynamic>> ExecuteReadAsync(string schema, ReadQueryRequest request)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         await SetSearchPathAsync(conn, schema);
 
         var parameters = BuildParameters(request.Parameters);
@@ -207,8 +198,7 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<int> ExecuteWriteAsync(string schema, WriteQueryRequest request)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         await SetSearchPathAsync(conn, schema);
 
         var parameters = BuildParameters(request.Parameters);
@@ -217,8 +207,7 @@ public sealed class DbProxyService : IDbProxyService
 
     public async Task<int> ExecuteDdlAsync(string schema, DdlQueryRequest request)
     {
-        await using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
+        await using var conn = await _db.CreateConnectionAsync();
         await SetSearchPathAsync(conn, schema);
 
         var parameters = BuildParameters(request.Parameters);

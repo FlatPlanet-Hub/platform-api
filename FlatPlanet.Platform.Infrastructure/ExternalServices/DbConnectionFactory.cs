@@ -14,4 +14,11 @@ public sealed class DbConnectionFactory : IDbConnectionFactory
         => _connectionString = settings.Value.BuildConnectionString();
 
     public DbConnection CreateConnection() => new NpgsqlConnection(_connectionString);
+
+    public async Task<DbConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        return conn;
+    }
 }
