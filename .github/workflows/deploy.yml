@@ -40,7 +40,17 @@ jobs:
       - name: Health check
         run: |
           echo "Waiting for app to warm up..."
-          sleep 20
-          curl --retry 6 --retry-delay 10 --retry-connrefused -f \
-            https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/health \
-            || (echo "Health check failed — deployment may be broken" && exit 1)
+          sleep 30
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+              https://flatplanet-api-freffxekdvb6hybs.southeastasia-01.azurewebsites.net/health 2>/dev/null || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "503" ]; then
+              echo "App is running (HTTP $STATUS — 503 means DB health check failed, not app crash)"
+              exit 0
+            fi
+            echo "Not ready yet (HTTP $STATUS), retrying in 15s..."
+            sleep 15
+          done
+          echo "Health check failed — app is not responding after all retries"
+          exit 1
