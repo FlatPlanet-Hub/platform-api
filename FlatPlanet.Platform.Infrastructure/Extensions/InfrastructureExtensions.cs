@@ -99,7 +99,8 @@ public static class InfrastructureExtensions
             client.BaseAddress = new Uri(s.BaseUrl.TrimEnd('/') + "/");
             // Authorization header set per-request in SecurityPlatformService.AuthorizeAsync
         });
-        services.AddScoped<ISecurityPlatformService, SecurityPlatformService>();
+        services.AddScoped<SecurityPlatformService>();
+        services.AddScoped<ISecurityPlatformService, CachedSecurityPlatformService>();
 
         // Application services
         services.AddScoped<IProjectService, ProjectService>();
