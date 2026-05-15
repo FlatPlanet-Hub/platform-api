@@ -94,7 +94,11 @@ builder.Services.AddRateLimiter(options =>
                         ?? "unknown";
         return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 30,
+            // 100/min is well above realistic interactive usage (typical Claude session
+            // is 5-15/min; heavy multi-dev work tops out around 30-40/min). Catches the
+            // runaway-loop pattern (which is usually 500-900/min) while keeping legitimate
+            // workloads invisible to the limit.
+            PermitLimit = 100,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = 0
@@ -110,9 +114,13 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        // Retry-After header tells well-behaved HTTP clients (Claude Code's client,
+        // most server-to-server libraries, browsers) to automatically back off for N
+        // seconds before retrying. No client-side coordination needed — RFC 7231 §7.1.3.
+        context.HttpContext.Response.Headers.RetryAfter = "60";
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsync(
-            "{\"success\":false,\"message\":\"Too many requests for this project. Please slow down or try again in a minute.\"}",
+            "{\"success\":false,\"message\":\"Too many requests for this project. Please retry after 60 seconds.\"}",
             token);
     };
 });
