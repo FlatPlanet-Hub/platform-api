@@ -99,7 +99,11 @@ public static class InfrastructureExtensions
             client.BaseAddress = new Uri(s.BaseUrl.TrimEnd('/') + "/");
             // Authorization header set per-request in SecurityPlatformService.AuthorizeAsync
         });
-        services.AddScoped<ISecurityPlatformService, SecurityPlatformService>();
+        // Decorator pattern: raw service is resolved by the cached wrapper.
+        // ISecurityPlatformService resolves to CachedSecurityPlatformService,
+        // which falls back to stale data when SP is unreachable.
+        services.AddScoped<SecurityPlatformService>();
+        services.AddScoped<ISecurityPlatformService, CachedSecurityPlatformService>();
 
         // Application services
         services.AddScoped<IProjectService, ProjectService>();
