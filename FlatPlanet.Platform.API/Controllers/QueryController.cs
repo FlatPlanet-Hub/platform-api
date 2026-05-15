@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using FlatPlanet.Platform.API.Middleware;
 using FlatPlanet.Platform.Application.Common.Helpers;
 using FlatPlanet.Platform.Application.DTOs;
@@ -10,6 +11,7 @@ namespace FlatPlanet.Platform.API.Controllers;
 
 [Route("api/projects/{projectId:guid}/query")]
 [Authorize]
+[EnableRateLimiting("project-query")]
 public sealed class QueryController : ApiControllerBase
 {
     private readonly IDbProxyService _dbProxy;
