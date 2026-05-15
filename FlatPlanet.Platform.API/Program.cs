@@ -52,9 +52,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// Rate limiting — fixed window per user (sub claim)
+// Rate limiting
 builder.Services.AddRateLimiter(options =>
 {
+    // Per-user fixed window — applies to all controller endpoints by default.
+    // Generous upper bound; primarily a guard against runaway clients on any endpoint.
     options.AddPolicy("per-user", httpContext =>
     {
         var userId = httpContext.User.FindFirst("sub")?.Value
@@ -68,7 +70,38 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         });
     });
+
+    // Per-project fixed window — applies only to /api/projects/{projectId}/query/* endpoints.
+    // Partitioned by the projectId route value so a misbehaving Claude session on one project
+    // cannot exhaust the DB connection pool for everyone else. 30 req/min is generous for
+    // interactive use but stops a tight retry loop within seconds.
+    //
+    // This stacks on top of per-user — both must allow the request.
+    options.AddPolicy("project-query", httpContext =>
+    {
+        var projectId = httpContext.GetRouteValue("projectId")?.ToString()
+                        ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                        ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Return our standard JSON envelope instead of an empty 429 body so the frontend
+    // can detect rate limiting consistently with other API errors.
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"success\":false,\"message\":\"Too many requests for this project. Please slow down or try again in a minute.\"}",
+            token);
+    };
 });
 
 // CORS
