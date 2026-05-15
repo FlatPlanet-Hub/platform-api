@@ -95,8 +95,11 @@ builder.Services.AddRateLimiter(options =>
 
     // Return our standard JSON envelope instead of an empty 429 body so the frontend
     // can detect rate limiting consistently with other API errors.
+    // NOTE: must explicitly set StatusCode here — when OnRejected is provided,
+    // RejectionStatusCode is NOT applied automatically.
     options.OnRejected = async (context, token) =>
     {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsync(
             "{\"success\":false,\"message\":\"Too many requests for this project. Please slow down or try again in a minute.\"}",

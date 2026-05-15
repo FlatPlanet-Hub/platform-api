@@ -11,7 +11,6 @@ namespace FlatPlanet.Platform.API.Controllers;
 
 [Route("api/projects/{projectId:guid}/query")]
 [Authorize]
-[EnableRateLimiting("project-query")]
 public sealed class QueryController : ApiControllerBase
 {
     private readonly IDbProxyService _dbProxy;
@@ -24,6 +23,7 @@ public sealed class QueryController : ApiControllerBase
     }
 
     [HttpPost("read")]
+    [EnableRateLimiting("project-query")]
     public async Task<ActionResult<ApiResponse<IEnumerable<dynamic>>>> Read([FromBody] ReadQueryRequest request)
     {
         var claims = GetClaims();
@@ -41,6 +41,7 @@ public sealed class QueryController : ApiControllerBase
     }
 
     [HttpPost("write")]
+    [EnableRateLimiting("project-query")]
     public async Task<ActionResult<ApiResponse<object?>>> Write([FromBody] WriteQueryRequest request)
     {
         var claims = GetClaims();
@@ -60,6 +61,7 @@ public sealed class QueryController : ApiControllerBase
     }
 
     [HttpPost("ddl")]
+    [EnableRateLimiting("project-query")]
     public async Task<ActionResult<ApiResponse<object?>>> Ddl([FromBody] DdlQueryRequest request)
     {
         var claims = GetClaims();
