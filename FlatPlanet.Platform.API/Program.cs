@@ -166,6 +166,11 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("default");
 app.UseMiddleware<GlobalExceptionMiddleware>();
+// UseRouting MUST be called before UseRateLimiter so the rate limiter
+// can read endpoint metadata ([EnableRateLimiting] attributes, RequireRateLimiting).
+// Without this, both the per-user and project-query policies are silently inactive
+// — the middleware runs but has no endpoint to inspect.
+app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
