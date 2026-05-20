@@ -15,6 +15,9 @@ public sealed record EmployeeDto(
     [property: JsonPropertyName("fp_employmentstatus@OData.Community.Display.V1.FormattedValue")]
     string? EmploymentStatus,
 
+    [property: JsonPropertyName("fp_classification@OData.Community.Display.V1.FormattedValue")]
+    string? Classification,
+
     [property: JsonPropertyName("_fp_activereportingto_value@OData.Community.Display.V1.FormattedValue")]
     string? ClientOpsLead,
 

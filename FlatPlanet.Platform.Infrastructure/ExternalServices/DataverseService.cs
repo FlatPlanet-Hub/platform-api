@@ -39,10 +39,14 @@ public sealed class DataverseService : IDataverseService
 
     public async Task<IEnumerable<EmployeeDto>> GetEmployeesAsync()
     {
-        // Filters: active only (statecode = 0) + Round Earth Philippines, Inc. company only
+        // Filters: active only (statecode = 0) + Round Earth Philippines, Inc. company only.
+        // fp_classification is a choice/option-set field — Dataverse returns both the raw int
+        // and the human-readable label via the OData FormattedValue annotation. RTW List
+        // filters staff to Offsite/Virtual workers using the formatted label.
         const string query =
             "fp_employees?$select=fp_name,fp_employmentdate,fp_separationdate," +
-            "fp_employmentstatus,_fp_activereportingto_value,_fp_activeclient_value,_fp_activeclientofficer_value" +
+            "fp_employmentstatus,fp_classification," +
+            "_fp_activereportingto_value,_fp_activeclient_value,_fp_activeclientofficer_value" +
             "&$filter=statecode%20eq%200%20and%20_fp_company_value%20eq%20bd7c35ae-b482-e911-a83a-000d3a07f6fe";
 
         return await QueryDataverseAsync<EmployeeDto>(query);
