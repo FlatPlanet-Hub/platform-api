@@ -317,7 +317,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.7";
+    public const string LocalFileVersion = "1.8";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -627,7 +627,37 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("### Login");
         sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/login");
         sb.AppendLine($"Body: {{ \"email\": \"...\", \"password\": \"...\", \"appSlug\": \"{appSlug}\" }}");
-        sb.AppendLine("Returns: { accessToken (60 min), refreshToken, expiresIn, user }");
+        sb.AppendLine("Always returns HTTP 200. Read the response flags to determine next step:");
+        sb.AppendLine();
+        sb.AppendLine("| requiresMfa | mfaEnrolmentPending | Can access app? | What to do |");
+        sb.AppendLine("|---|---|---|---|");
+        sb.AppendLine("| false | false | YES — tokens in response | Store tokens, redirect to app |");
+        sb.AppendLine("| true | false | NOT YET — must verify MFA | Show TOTP input (see MFA Verify below) |");
+        sb.AppendLine("| false | true | NOT YET — must enrol first | Show enrolment flow (see MFA Enrol below) |");
+        sb.AppendLine();
+        sb.AppendLine("Never treat requiresMfa: true as an error — it is a normal login step.");
+        sb.AppendLine("Never allow app access when mfaEnrolmentPending: true — the enrollment-only token is restricted.");
+        sb.AppendLine();
+        sb.AppendLine("### MFA Verify (user already enrolled)");
+        sb.AppendLine("When requiresMfa: true, the response contains userId but no tokens.");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/mfa/totp/login-verify");
+        sb.AppendLine("Body: { \"userId\": \"...\", \"totpCode\": \"123456\" }");
+        sb.AppendLine("Returns: full login response with tokens. Store and redirect.");
+        sb.AppendLine();
+        sb.AppendLine("Fallback options — show these as 'having trouble?' links:");
+        sb.AppendLine($"  Email OTP:   POST {spBaseUrl}/api/v1/mfa/totp/request-email-fallback  Body: {{ \"userId\": \"...\" }}");
+        sb.AppendLine($"               → returns challengeId, then verify: POST {spBaseUrl}/api/v1/mfa/email-otp/login-verify  Body: {{ \"challengeId\": \"...\", \"otpCode\": \"...\" }}");
+        sb.AppendLine($"  Backup code: POST {spBaseUrl}/api/v1/mfa/backup-code/login-verify  Body: {{ \"userId\": \"...\", \"backupCode\": \"...\" }}");
+        sb.AppendLine();
+        sb.AppendLine("### MFA Enrol (first login or after admin reset)");
+        sb.AppendLine("When mfaEnrolmentPending: true, the response contains an enrollment-only token (10 min expiry).");
+        sb.AppendLine("This token only works on MFA enrolment endpoints — all other calls return 403.");
+        sb.AppendLine($"1. POST {spBaseUrl}/api/v1/mfa/totp/begin-enrol  (Bearer: enrollment token)");
+        sb.AppendLine("   Returns: { qrCodeUri } — an otpauth:// string. Render as a QR code.");
+        sb.AppendLine("2. User scans QR code with their authenticator app and enters the 6-digit code.");
+        sb.AppendLine($"3. POST {spBaseUrl}/api/v1/mfa/totp/verify-enrol  Body: {{ \"totpCode\": \"...\" }}");
+        sb.AppendLine("   Returns: full login response with tokens. Store and redirect.");
+        sb.AppendLine("Backup codes are shown once — prompt the user to save them after enrolment.");
         sb.AppendLine();
         sb.AppendLine("### Protect Routes");
         sb.AppendLine("All protected routes require:");
