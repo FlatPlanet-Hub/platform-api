@@ -1,9 +1,18 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.6.0
+**Version:** 1.7.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.7.0
+
+| Change | Details |
+|---|---|
+| `netlifySiteUrl` on projects | New optional field on all project responses and `PATCH /api/projects/{id}`. Stores the Netlify frontend URL for the project (e.g. `https://fp-mayari.netlify.app`). Trailing slashes are stripped on save. Clear it by sending `""`. Must be a valid `http`/`https` URL if provided. |
+| CORS auto-configuration on Azure provisioning | When `POST /api/projects/{id}/provision-azure` is called, the provisioner now automatically sets `Cors__AllowedOrigins__0` on the Azure App Service to the project's stored `netlifySiteUrl`. If `netlifySiteUrl` is `null` at provision time, `Cors__AllowedOrigins__0` is not set and the App Service falls back to allow all origins. **Already-provisioned services are not updated automatically** — update CORS origins for existing App Services manually via the Azure Portal. |
 
 ---
 
@@ -419,6 +428,7 @@ Returns all projects the authenticated user has access to. Access is determined 
       "projectType": "fullstack",
       "authEnabled": false,
       "netlifySiteId": "a42df2d2-0a69-4995-ba93-2b17061218a5",
+      "netlifySiteUrl": "https://fp-mayari.netlify.app",
       "members": null
     }
   ]
@@ -525,6 +535,7 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
     "projectType": "fullstack",
     "authEnabled": false,
     "netlifySiteId": null,
+    "netlifySiteUrl": null,
     "members": null
   }
 }
@@ -532,6 +543,7 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
 
 `github` is `null` in the response when no GitHub configuration was provided.
 `netlifySiteId` is `null` on creation — set it via `PUT /api/projects/{id}` once the Netlify site exists.
+`netlifySiteUrl` is `null` on creation — set it via `PATCH /api/projects/{id}` once the Netlify site URL is known.
 
 **Error Responses:**
 
@@ -591,6 +603,7 @@ Returns a single project by ID.
     "projectType": "fullstack",
     "authEnabled": false,
     "netlifySiteId": "a42df2d2-0a69-4995-ba93-2b17061218a5",
+    "netlifySiteUrl": "https://fp-mayari.netlify.app",
     "members": null
   }
 }
@@ -607,6 +620,7 @@ Returns a single project by ID.
 **Notes:**
 - `projectType` — one of `frontend`, `backend`, `database`, `fullstack`. Controls which tech stack standards are injected into `CLAUDE-local.md`.
 - `authEnabled` — when `true`, `CLAUDE-local.md` workspace content includes the SP authentication integration guide.
+- `netlifySiteUrl` — the Netlify frontend URL for this project, if set. `null` when not configured. Trailing slashes are stripped on save. Set or clear this via `PATCH /api/projects/{id}`.
 - **Admin override:** Users with the `view_all_projects` permission on the `dashboard-hub` app bypass the Security Platform authorization check and can retrieve any project. Their `roleName` is `"admin"` if they are not an explicit member of the project.
 
 ---
@@ -658,6 +672,60 @@ All fields are optional. Only provided fields are updated.
 | Code | Reason |
 |---|---|
 | `400` | Invalid input |
+| `401` | Missing or invalid JWT |
+| `403` | User lacks `manage_members` on this project |
+| `404` | Project not found |
+
+---
+
+### `PATCH /api/projects/{id}`
+
+Partially updates project metadata. Use this endpoint to set or clear `netlifySiteUrl` and other patchable fields. Requires `manage_members` permission (checked via Security Platform).
+
+**Auth required:** Security Platform JWT with `manage_members` on this project
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Project ID |
+
+**Request:**
+
+```json
+{
+  "netlifySiteUrl": "https://fp-mayari.netlify.app"
+}
+```
+
+**Fields (`UpdateProjectRequest`):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | No | New display name |
+| `description` | string | No | New description |
+| `techStack` | string | No | Free-text tech stack description |
+| `projectType` | string | No | Update project type |
+| `authEnabled` | boolean | No | Update auth enabled flag |
+| `netlifySiteId` | string | No | Netlify site ID to link to this project. Must contain only letters, digits, and hyphens. Send `""` to clear. |
+| `netlifySiteUrl` | string | No | Netlify frontend URL for this project (e.g. `https://fp-mayari.netlify.app`). Must be a valid `http` or `https` URL. Trailing slashes are stripped on save. Send `""` (empty string) to clear. Used as `Cors__AllowedOrigins__0` when provisioning a new Azure App Service. |
+
+All fields are optional. Only provided fields are updated.
+
+**Validation rules for `netlifySiteUrl`:**
+- Must be a valid `http` or `https` URL, **or** an empty string `""` to clear the value.
+- Trailing slashes are stripped before saving (e.g. `https://fp-mayari.netlify.app/` is stored as `https://fp-mayari.netlify.app`).
+- A non-empty value that fails URL validation returns `400`.
+
+---
+
+**Success Response `200`:** Returns updated `ProjectResponse` (same shape as [Get Project](#get-project)).
+
+**Error Responses:**
+
+| Code | Reason |
+|---|---|
+| `400` | `netlifySiteUrl` is present but not a valid `http`/`https` URL |
 | `401` | Missing or invalid JWT |
 | `403` | User lacks `manage_members` on this project |
 | `404` | Project not found |
@@ -835,6 +903,7 @@ All other app settings (`Jwt__*`, `PlatformApi__*`, `ConnectionStrings__Default`
 - The `appServiceUrl` is read from `DefaultHostName` on the Azure SDK response — it reflects the actual URL Azure assigned, including any random suffix and region. A fallback to `{name}.azurewebsites.net` is used only if Azure returns a blank hostname (rare edge case).
 - If the publish profile fetch fails, provisioning is still considered successful and `publishProfileXml` is returned as an empty string. Use `POST /api/projects/{id}/sync-github-actions` to retry the GitHub Actions setup separately.
 - **Netlify auto-push:** If the project has a `netlifySiteId` set, `VITE_API_URL` and `VITE_PLATFORM_TOKEN` are pushed to Netlify after provisioning completes, then a Netlify redeploy is triggered — all fire-and-forget. The deploy is triggered only after both env vars are confirmed pushed (sequential, not concurrent). Failures are logged and do not affect the provision response.
+- **CORS auto-configuration:** If the project has a `netlifySiteUrl` set at provision time, `Cors__AllowedOrigins__0` is automatically written to the App Service app settings with that URL. If `netlifySiteUrl` is `null`, the setting is not written and the App Service falls back to its default CORS behaviour (allow all origins). **Already-provisioned App Services are not retroactively updated** — only new provisions pick this up. To update CORS origins on an existing App Service, set them manually in the Azure Portal (App Service → Configuration → Application settings → `Cors__AllowedOrigins__0`).
 
 ---
 
