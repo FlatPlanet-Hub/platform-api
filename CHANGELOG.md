@@ -5,6 +5,26 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 ---
 
+## [1.5.0] — 2026-06-10
+
+### Changed
+
+- **Project seed role names (V27 alignment)** — `ProvisionAppRolesAsync` now seeds new projects with `owner` / `developer` / `user` (was `owner` / `developer` / `viewer`).
+- **`developer` permission set expanded** — the `developer` role on a newly provisioned project now carries `manage_members` in addition to `read`, `write`, `ddl`. This matches the SP V27 migration applied to existing apps.
+- **Project creator role** — `POST /api/projects` now grants the creator the `developer` role on the new app (previously `owner`). The `owner` role still exists and remains the only role with `delete_project`; it becomes a manual escalation tier rather than the default for creators.
+- **`POST /api/projects/{id}/members`** and **`PUT /api/projects/{id}/members/{userId}/role`** — the accepted `role` values are now `owner`, `developer`, `user` (was `owner`, `developer`, `viewer`).
+- **GitHub collaborator mapping** — `user` falls through to the default `pull` permission, identical to the legacy `viewer` mapping.
+
+### Preserved (intentional carve-out)
+
+- **`dashboard-hub` auto-grant** — `ProjectMemberService` still grants the literal `"viewer"` role on `dashboard-hub` when inviting members to other projects. `dashboard-hub` retains its legacy `Admin` / `User` / `Viewer` set and is intentionally not affected by this rename. Updating the literal to `"user"` would silently match dashboard-hub's `User` role (which has `write_data`), elevating new members from read-only to read+write.
+
+### Notes
+
+- `ProvisionAzureService` was not modified. Its permission check is on `Permissions` (not role names) — developers already pass via the `write` permission both before and after V27. The `p.Equals("owner", ...)` line in that check is dead code (no such permission exists) — flagged for a separate cleanup PR.
+
+---
+
 ## [1.4.0] — 2026-04-29
 
 ### Added

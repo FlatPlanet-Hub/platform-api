@@ -85,7 +85,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
 
         // Create 3 roles
         var roleIds = new Dictionary<string, Guid>();
-        foreach (var roleName in new[] { "owner", "developer", "viewer" })
+        foreach (var roleName in new[] { "owner", "developer", "user" })
         {
             var resp = await ServiceClient.PostAsJsonAsync(
                 $"api/v1/apps/{appId}/roles",
@@ -109,8 +109,8 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         var assignments = new[]
         {
             ("owner",     new[] { "read", "write", "ddl", "manage_members", "delete_project" }),
-            ("developer", new[] { "read", "write", "ddl" }),
-            ("viewer",    new[] { "read" })
+            ("developer", new[] { "read", "write", "ddl", "manage_members" }),
+            ("user",      new[] { "read" })
         };
 
         foreach (var (roleName, rolePerms) in assignments)
