@@ -1,9 +1,21 @@
 # FlatPlanet Platform API — Frontend Integration Reference
 
-**Version:** 1.6.0
+**Version:** 1.7.0
 **Base URL:** `https://<your-host>` (local: see `launchSettings.json`)
 **API Docs (dev only):** `/scalar`
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## What's New in v1.7.0
+
+| Change | Details |
+|---|---|
+| Role streamline (V27 alignment) | New projects are seeded with the canonical triad `owner` / `developer` / `user` (was `viewer`). The `developer` role now carries `manage_members` in addition to `read`, `write`, `ddl`. |
+| Creator now lands as `developer` | `POST /api/projects` grants the creator the `developer` role on the new app (previously `owner`). `owner` becomes a manual escalation tier for those who need `delete_project`. |
+| Member-role values | `POST /api/projects/{id}/members` and `PUT /api/projects/{id}/members/{userId}/role` accept `user` instead of `viewer` (`owner` and `developer` unchanged). |
+| GitHub permission mapping | `user` → `pull` (read-only collaborator), same effective access as the legacy `viewer` mapping. |
+| dashboard-hub exception | The `dashboard-hub` app retains its legacy `Admin` / `User` / `Viewer` role set and is intentionally not affected by this rename. The hub auto-grant continues to assign `Viewer` for non-members. |
 
 ---
 
@@ -444,7 +456,7 @@ Returns all projects the authenticated user has access to. Access is determined 
 
 ### `POST /api/projects`
 
-Creates a new project. Provisions a Postgres schema, registers the app with the Security Platform, creates default roles and permissions (`owner`, `developer`, `viewer`), optionally creates a GitHub repo, and auto-pushes a `CLAUDE.md` to the repo.
+Creates a new project. Provisions a Postgres schema, registers the app with the Security Platform, creates default roles and permissions (`owner`, `developer`, `user`), optionally creates a GitHub repo, and auto-pushes a `CLAUDE.md` to the repo. The creator is granted the `developer` role.
 
 **Auth required:** Security Platform JWT with `company_id` claim
 
@@ -512,7 +524,7 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
     "schemaName": "project_acme_crm",
     "ownerId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     "appSlug": "acme-crm",
-    "roleName": "owner",
+    "roleName": "developer",
     "techStack": "React + .NET 10",
     "isActive": true,
     "createdAt": "2026-03-26T14:00:00Z",
@@ -545,7 +557,7 @@ Creates a new project. Provisions a Postgres schema, registers the app with the 
 **Notes:**
 - **Creation order:** GitHub repo → Security Platform registration → DB insert. SP failure after GitHub creation will not leave a DB record (no orphans), but the GitHub repo may already exist.
 - **CLAUDE.md auto-push:** If a GitHub repo is configured, a `CLAUDE.md` is generated and committed to the repo automatically. This is fire-and-forget — it does not block project creation.
-- Project creation makes ~19 sequential Security Platform calls (register app, create 5 permissions, create 3 roles, assign permissions to roles, grant creator `owner`). Expect 2–4 seconds.
+- Project creation makes ~19 sequential Security Platform calls (register app, create 5 permissions, create 3 roles, assign permissions to roles, grant creator `developer`). Expect 2–4 seconds.
 - SP errors (e.g. slug conflict `409`) are now surfaced with the real SP error message instead of a generic `500`.
 
 ---
@@ -924,8 +936,8 @@ Grants a user access to the project with a specified role. Optionally adds them 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `userId` | UUID | Yes | Security Platform user ID to grant access to |
-| `role` | string | Yes | One of: `owner`, `developer`, `viewer` |
-| `githubUsername` | string | No | If provided, adds the user as a GitHub repo collaborator. Role → GitHub permission: `owner` → `admin`, `developer` → `push`, `viewer` → `pull`. |
+| `role` | string | Yes | One of: `owner`, `developer`, `user` |
+| `githubUsername` | string | No | If provided, adds the user as a GitHub repo collaborator. Role → GitHub permission: `owner` → `admin`, `developer` → `push`, `user` → `pull`. |
 
 ---
 
@@ -949,7 +961,7 @@ Grants a user access to the project with a specified role. Optionally adds them 
 | `502` | Security Platform unreachable |
 
 **Notes:**
-- **dashboard-hub auto-grant:** After granting the project role, HubApi checks whether the user has any role on the `dashboard-hub` app. If not, they are automatically granted `viewer` on `dashboard-hub`. This is fire-and-forget — a failure is logged but does not roll back the project role grant.
+- **dashboard-hub auto-grant:** After granting the project role, HubApi checks whether the user has any role on the `dashboard-hub` app. If not, they are automatically granted `viewer` on `dashboard-hub`. This is fire-and-forget — a failure is logged but does not roll back the project role grant. (Note: dashboard-hub retains its legacy `Admin` / `User` / `Viewer` triad and is intentionally excluded from the v1.7.0 role rename.)
 - GitHub collaborator invitation is fire-and-forget — a GitHub failure does not roll back the role grant.
 - `githubUsername` is only used at invite time. If skipped, there is no later endpoint to add the user to the GitHub repo without removing and re-adding the member.
 - The user must already exist in the Security Platform. This endpoint does not create users.
@@ -975,7 +987,7 @@ Changes an existing member's role.
 
 ```json
 {
-  "role": "viewer"
+  "role": "user"
 }
 ```
 
@@ -983,7 +995,7 @@ Changes an existing member's role.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `role` | string | Yes | New role: `owner`, `developer`, or `viewer` |
+| `role` | string | Yes | New role: `owner`, `developer`, or `user` |
 
 ---
 

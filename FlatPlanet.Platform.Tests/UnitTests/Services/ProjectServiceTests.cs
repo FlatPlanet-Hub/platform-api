@@ -33,7 +33,7 @@ public sealed class ProjectServiceTests
         _projectRepo.Setup(r => r.UpdateAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
         _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
-        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "developer")).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
@@ -46,7 +46,7 @@ public sealed class ProjectServiceTests
         Assert.Null(result.GitHub);
         _securityPlatform.Verify(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId), Times.Once);
         _securityPlatform.Verify(s => s.SetupProjectRolesAsync(appId), Times.Once);
-        _securityPlatform.Verify(s => s.GrantRoleAsync(appId, userId, "owner"), Times.Once);
+        _securityPlatform.Verify(s => s.GrantRoleAsync(appId, userId, "developer"), Times.Once);
         _gitHubRepo.Verify(g => g.CreateRepoAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -65,7 +65,7 @@ public sealed class ProjectServiceTests
         _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
         _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
         _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
-        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "developer")).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.CreateRepoAsync("my-app-repo"))
             .ReturnsAsync(("FlatPlanet-Hub/my-app-repo", "https://github.com/FlatPlanet-Hub/my-app-repo"));
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
@@ -99,7 +99,7 @@ public sealed class ProjectServiceTests
         _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
         _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
         _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
-        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "developer")).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.SeedProjectFilesAsync(It.IsAny<Project>())).Returns(Task.CompletedTask);
         _gitHubRepo.Setup(g => g.PushClaudeMdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
         _claudeConfig.Setup(c => c.RenderAndStoreTokenAsync(It.IsAny<Project>(), userId, It.IsAny<string>(), It.IsAny<string>()))
@@ -127,7 +127,7 @@ public sealed class ProjectServiceTests
         _projectRepo.Setup(r => r.CreateAsync(It.IsAny<Project>())).ReturnsAsync((Project p) => p);
         _securityPlatform.Setup(s => s.RegisterAppAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), companyId)).ReturnsAsync(appId);
         _securityPlatform.Setup(s => s.SetupProjectRolesAsync(appId)).Returns(Task.CompletedTask);
-        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "owner")).Returns(Task.CompletedTask);
+        _securityPlatform.Setup(s => s.GrantRoleAsync(appId, userId, "developer")).Returns(Task.CompletedTask);
         _dbProxy.Setup(d => d.CreateSchemaAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
 
         var sut = CreateSut();
