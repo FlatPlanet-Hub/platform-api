@@ -290,6 +290,14 @@ public sealed class ProvisionAzureService(
         if (name.Length < 3)
             name = $"fp-{name}";
 
+        // Enforce fp- prefix
+        if (!name.StartsWith("fp-"))
+            name = $"fp-{name}";
+
+        // Re-enforce max 60 chars after prefix addition
+        if (name.Length > 60)
+            name = name[..56].TrimEnd('-') + "-api";
+
         return name;
     }
 }
