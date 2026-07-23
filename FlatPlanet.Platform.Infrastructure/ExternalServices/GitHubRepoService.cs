@@ -26,12 +26,27 @@ public sealed class GitHubRepoService : IGitHubRepoService
         _settings = settings.Value;
     }
 
-    // ── Service token client (used for all operations) ────────────────────────
+    // ── GitHub clients ────────────────────────────────────────────────────────
 
     private GitHubClient GetServiceClient() => new(new ProductHeaderValue("FlatPlanetHub"))
     {
         Credentials = new Credentials(_settings.ServiceToken)
     };
+
+    // WorkflowToken has `workflow` scope for pushing .github/workflows/ files.
+    // Falls back to ServiceToken so local dev works without extra config.
+    private GitHubClient GetWorkflowClient() => new(new ProductHeaderValue("FlatPlanetHub"))
+    {
+        Credentials = new Credentials(
+            string.IsNullOrWhiteSpace(_settings.WorkflowToken)
+                ? _settings.ServiceToken
+                : _settings.WorkflowToken)
+    };
+
+    private string WorkflowTokenValue =>
+        string.IsNullOrWhiteSpace(_settings.WorkflowToken)
+            ? _settings.ServiceToken
+            : _settings.WorkflowToken;
 
     private static (string Owner, string RepoName) ParseRepo(string gitHubRepo)
     {
@@ -200,7 +215,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
     public async Task UpdateWorkflowAsync(string repo, string workflowContent)
     {
-        var client = GetServiceClient();
+        var client = GetWorkflowClient();
         var (owner, repoName) = ParseRepo(repo);
         const string path = ".github/workflows/ci.yml";
 
@@ -227,7 +242,7 @@ public sealed class GitHubRepoService : IGitHubRepoService
 
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Add("User-Agent", "FlatPlanetHub");
-        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ServiceToken}");
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {WorkflowTokenValue}");
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
 
         // 1. Get repo public key
