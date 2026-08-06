@@ -600,11 +600,13 @@ public sealed class ClaudeConfigService : IClaudeConfigService
             sb.AppendLine("No GitHub repo linked to this project yet.");
             sb.AppendLine();
         }
-        sb.AppendLine("1. Work on a feature branch: git checkout -b feature/{feature-name}");
-        sb.AppendLine("2. Build and test locally before committing");
-        sb.AppendLine("3. Commit with descriptive messages: feat:, fix:, refactor:, docs:");
-        sb.AppendLine("4. Push: git push origin feature/{feature-name}");
-        sb.AppendLine("5. For major features, create a PR to main");
+        sb.AppendLine("1. Always pull latest main before starting any work or opening a PR:");
+        sb.AppendLine("   git pull origin main");
+        sb.AppendLine("2. Work on a feature branch: git checkout -b feature/{feature-name}");
+        sb.AppendLine("3. Build and test locally before committing");
+        sb.AppendLine("4. Commit with descriptive messages: feat:, fix:, refactor:, docs:");
+        sb.AppendLine("5. Push: git push origin feature/{feature-name}");
+        sb.AppendLine("6. For major features, create a PR to main");
         sb.AppendLine();
         sb.AppendLine("## Coding Standards");
         sb.AppendLine();
