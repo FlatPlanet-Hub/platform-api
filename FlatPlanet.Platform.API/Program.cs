@@ -52,10 +52,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// Rate limiting — fixed window per user (sub claim)
+// Rate limiting
+//
+// NOTE on ASP.NET Core rate limit middleware behavior:
+//   - The RateLimitingMiddleware supports ONLY ONE named policy per endpoint.
+//   - [EnableRateLimiting("X")] on an endpoint REPLACES any policy attached via
+//     RequireRateLimiting("Y") at MapControllers level.
+//   - To run TWO checks against a single request, use GlobalLimiter + a named policy.
+//     GlobalLimiter runs first and is independent of endpoint policies, so it stacks.
+//
+// Strategy:
+//   - GlobalLimiter (per-user, 1000/min)   → guard against runaway clients on any endpoint
+//   - "project-query" named policy (per-project, 30/min) → applied to /query/* via attribute
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddPolicy("per-user", httpContext =>
+    // Global limiter — runs on every request, in addition to any named endpoint policy.
+    // Partitioned per user (or IP for anonymous) so one user can't burst >1000/min.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
     {
         var userId = httpContext.User.FindFirst("sub")?.Value
                      ?? httpContext.Connection.RemoteIpAddress?.ToString()
@@ -68,7 +81,48 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         });
     });
+
+    // Per-project fixed window — applies to /api/projects/{projectId}/query/* via
+    // [EnableRateLimiting("project-query")] on each action method in QueryController.
+    // Partitioned by projectId route value so a misbehaving Claude session on one project
+    // cannot exhaust the DB connection pool for everyone else. 30 req/min is generous for
+    // interactive use but stops a tight retry loop within seconds.
+    options.AddPolicy("project-query", httpContext =>
+    {
+        var projectId = httpContext.GetRouteValue("projectId")?.ToString()
+                        ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                        ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
+        {
+            // 100/min is well above realistic interactive usage (typical Claude session
+            // is 5-15/min; heavy multi-dev work tops out around 30-40/min). Catches the
+            // runaway-loop pattern (which is usually 500-900/min) while keeping legitimate
+            // workloads invisible to the limit.
+            PermitLimit = 100,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Return our standard JSON envelope instead of an empty 429 body so the frontend
+    // can detect rate limiting consistently with other API errors.
+    // NOTE: must explicitly set StatusCode here — when OnRejected is provided,
+    // RejectionStatusCode is NOT applied automatically.
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        // Retry-After header tells well-behaved HTTP clients (Claude Code's client,
+        // most server-to-server libraries, browsers) to automatically back off for N
+        // seconds before retrying. No client-side coordination needed — RFC 7231 §7.1.3.
+        context.HttpContext.Response.Headers.RetryAfter = "60";
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"success\":false,\"message\":\"Too many requests for this project. Please retry after 60 seconds.\"}",
+            token);
+    };
 });
 
 // CORS
@@ -133,12 +187,21 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("default");
 app.UseMiddleware<GlobalExceptionMiddleware>();
+// UseRouting MUST be called before UseRateLimiter so the rate limiter
+// can read endpoint metadata ([EnableRateLimiting] attributes, RequireRateLimiting).
+// Without this, both the per-user and project-query policies are silently inactive
+// — the middleware runs but has no endpoint to inspect.
+app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<ProjectScopeMiddleware>();
 
-app.MapControllers().RequireRateLimiting("per-user");
+// Note: per-user limit is applied via GlobalLimiter in AddRateLimiter above —
+// NOT via RequireRateLimiting here, because that would conflict with the
+// [EnableRateLimiting] attribute on QueryController and prevent project-query
+// from firing. GlobalLimiter runs alongside named policies; RequireRateLimiting does not.
+app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();

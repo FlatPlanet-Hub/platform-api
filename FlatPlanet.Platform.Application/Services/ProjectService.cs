@@ -81,7 +81,7 @@ public sealed class ProjectService : IProjectService
         // 2. Register with SP first — if this fails, nothing is persisted
         var appId = await _securityPlatform.RegisterAppAsync(request.Name, appSlug, baseUrl, companyId);
         await _securityPlatform.SetupProjectRolesAsync(appId);
-        await _securityPlatform.GrantRoleAsync(appId, userId, "owner");
+        await _securityPlatform.GrantRoleAsync(appId, userId, "developer");
 
         // 3. Insert DB row after SP succeeds
         var project = new Project
@@ -123,7 +123,7 @@ public sealed class ProjectService : IProjectService
         // 5. Create project schema in Supabase (fire-and-forget)
         _ = _dbProxy.CreateSchemaAsync(schemaName);
 
-        return ToResponse(created, "owner");
+        return ToResponse(created, "developer");
     }
 
     public async Task<IEnumerable<ProjectResponse>> GetUserProjectsAsync(Guid userId)

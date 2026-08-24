@@ -28,7 +28,12 @@ jobs:
         run: dotnet test FlatPlanet.Platform.Tests --configuration Release --no-build --no-restore
 
       - name: Publish
-        run: dotnet publish FlatPlanet.Platform.API --configuration Release --no-build --output ./publish
+        # --runtime linux-x64 is required by PublishReadyToRun (R2R needs a runtime identifier).
+        # We drop --no-build because the prior `dotnet build` step did not target a RID,
+        # so the linux-x64 artifacts R2R needs do not exist yet. Letting publish do its own
+        # build for linux-x64 is the simplest reliable path.
+        # --self-contained false keeps the deployed payload framework-dependent (smaller).
+        run: dotnet publish FlatPlanet.Platform.API --configuration Release --runtime linux-x64 --self-contained false --output ./publish
 
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3

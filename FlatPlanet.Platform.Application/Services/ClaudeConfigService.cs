@@ -317,7 +317,7 @@ public sealed class ClaudeConfigService : IClaudeConfigService
 
     // Increment this when the CLAUDE-local.md template changes in a meaningful way.
     // Claude checks this version at session start and prompts the user to regenerate if outdated.
-    public const string LocalFileVersion = "1.7";
+    public const string LocalFileVersion = "1.8";
 
     private static string RenderTemplate(Project project, string token, DateTime expiresAt, string baseUrl, GitHubOptions github)
     {
@@ -337,6 +337,27 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("> This file is git-ignored for a reason. It contains a **live API token** tied to your project's database.");
         sb.AppendLine("> If you accidentally commit this file, go to the FlatPlanet Hub immediately and click **Regenerate** to revoke the token.");
         sb.AppendLine("> Add this entry to your `.gitignore`: `CLAUDE-local.md`");
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine("## Non-Negotiable Security Rules");
+        sb.AppendLine();
+        sb.AppendLine("Every rule below exists because breaking it has caused a production security incident on this platform.");
+        sb.AppendLine("If a design choice conflicts with any rule, STOP and tell the user before writing code — do not work around it.");
+        sb.AppendLine();
+        sb.AppendLine("1. **Never hardcode the platform token in frontend code.** No `.jsx`, `.tsx`, `.js`, or `.ts` file that ships to the browser may contain the token as a string literal. The token belongs only in server-side environment variables read at request time.");
+        sb.AppendLine();
+        sb.AppendLine("2. **Never expose the token via a browser-visible env var.** Do NOT prefix it with `VITE_`, `REACT_APP_`, `NEXT_PUBLIC_`, or any other prefix that a build tool inlines into the client bundle. Use a plain name like `PLATFORM_TOKEN` and read it only from server-side code (Netlify Functions, API routes, backend services).");
+        sb.AppendLine();
+        sb.AppendLine("3. **Never commit the token to git.** Not in source, not in `netlify.toml`, not in a checked-in `.env`, not in a comment, not as a \"temporary fallback default\" like `process.env.X || 'eyJ...'`. If it needs to be somewhere, that somewhere is the hosting platform's environment-variable UI. Fail fast if the env var is missing — do not fall back to a literal.");
+        sb.AppendLine();
+        sb.AppendLine("4. **Never build your own login, user table, or password hashing.** The Security Platform (SP) is the only source of user identity for every FlatPlanet project. If you find yourself writing `SELECT ... FROM users WHERE password_hash = ...` or `crypto.subtle.digest('SHA-256', ...)`, STOP and use `POST /api/v1/auth/login` on SP instead (see the SP section below).");
+        sb.AppendLine();
+        sb.AppendLine("5. **Never expose a raw-SQL proxy endpoint to the browser.** Do not build a function or route that accepts `{ sql, parameters }` from the client. Expose specific action endpoints (`/approve-request`, `/list-bills`, `/create-invoice`) and build the SQL server-side. A generic `db-proxy` that takes arbitrary SQL from anyone on the internet is a full database compromise — no amount of auth on it makes it safe.");
+        sb.AppendLine();
+        sb.AppendLine("6. **Never call the Platform API directly from the browser.** The browser must call your app's own backend (Netlify Functions or API routes); that backend attaches `PLATFORM_TOKEN` server-side and calls the Platform API on the user's behalf. If a frontend page wants the platform token, that is the signal to move that call into a server function instead.");
+        sb.AppendLine();
+        sb.AppendLine("7. **Never store SP tokens in `localStorage` or in URL query strings.** Access tokens and refresh tokens must live in `HttpOnly; Secure; SameSite=Lax` cookies set by the server. `localStorage` is readable by any XSS on the page; query strings leak into browser history and Referer headers.");
         sb.AppendLine();
         sb.AppendLine("---");
         sb.AppendLine();
@@ -627,7 +648,37 @@ public sealed class ClaudeConfigService : IClaudeConfigService
         sb.AppendLine("### Login");
         sb.AppendLine($"POST {spBaseUrl}/api/v1/auth/login");
         sb.AppendLine($"Body: {{ \"email\": \"...\", \"password\": \"...\", \"appSlug\": \"{appSlug}\" }}");
-        sb.AppendLine("Returns: { accessToken (60 min), refreshToken, expiresIn, user }");
+        sb.AppendLine("Always returns HTTP 200. Read the response flags to determine next step:");
+        sb.AppendLine();
+        sb.AppendLine("| requiresMfa | mfaEnrolmentPending | Can access app? | What to do |");
+        sb.AppendLine("|---|---|---|---|");
+        sb.AppendLine("| false | false | YES — tokens in response | Store tokens, redirect to app |");
+        sb.AppendLine("| true | false | NOT YET — must verify MFA | Show TOTP input (see MFA Verify below) |");
+        sb.AppendLine("| false | true | NOT YET — must enrol first | Show enrolment flow (see MFA Enrol below) |");
+        sb.AppendLine();
+        sb.AppendLine("Never treat requiresMfa: true as an error — it is a normal login step.");
+        sb.AppendLine("Never allow app access when mfaEnrolmentPending: true — the enrollment-only token is restricted.");
+        sb.AppendLine();
+        sb.AppendLine("### MFA Verify (user already enrolled)");
+        sb.AppendLine("When requiresMfa: true, the response contains userId but no tokens.");
+        sb.AppendLine($"POST {spBaseUrl}/api/v1/mfa/totp/login-verify");
+        sb.AppendLine("Body: { \"userId\": \"...\", \"totpCode\": \"123456\" }");
+        sb.AppendLine("Returns: full login response with tokens. Store and redirect.");
+        sb.AppendLine();
+        sb.AppendLine("Fallback options — show these as 'having trouble?' links:");
+        sb.AppendLine($"  Email OTP:   POST {spBaseUrl}/api/v1/mfa/totp/request-email-fallback  Body: {{ \"userId\": \"...\" }}");
+        sb.AppendLine($"               → returns challengeId, then verify: POST {spBaseUrl}/api/v1/mfa/email-otp/login-verify  Body: {{ \"challengeId\": \"...\", \"otpCode\": \"...\" }}");
+        sb.AppendLine($"  Backup code: POST {spBaseUrl}/api/v1/mfa/backup-code/login-verify  Body: {{ \"userId\": \"...\", \"backupCode\": \"...\" }}");
+        sb.AppendLine();
+        sb.AppendLine("### MFA Enrol (first login or after admin reset)");
+        sb.AppendLine("When mfaEnrolmentPending: true, the response contains an enrollment-only token (10 min expiry).");
+        sb.AppendLine("This token only works on MFA enrolment endpoints — all other calls return 403.");
+        sb.AppendLine($"1. POST {spBaseUrl}/api/v1/mfa/totp/begin-enrol  (Bearer: enrollment token)");
+        sb.AppendLine("   Returns: { qrCodeUri } — an otpauth:// string. Render as a QR code.");
+        sb.AppendLine("2. User scans QR code with their authenticator app and enters the 6-digit code.");
+        sb.AppendLine($"3. POST {spBaseUrl}/api/v1/mfa/totp/verify-enrol  Body: {{ \"totpCode\": \"...\" }}");
+        sb.AppendLine("   Returns: full login response with tokens. Store and redirect.");
+        sb.AppendLine("Backup codes are shown once — prompt the user to save them after enrolment.");
         sb.AppendLine();
         sb.AppendLine("### Protect Routes");
         sb.AppendLine("All protected routes require:");
