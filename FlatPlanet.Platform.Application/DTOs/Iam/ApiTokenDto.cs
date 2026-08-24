@@ -4,6 +4,7 @@ public sealed class CreateApiTokenRequest
 {
     public string Name { get; init; } = string.Empty;
     public Guid? AppId { get; init; }
+    public Guid? ProjectId { get; init; }
     public string[] Permissions { get; init; } = [];
     public int ExpiryDays { get; init; } = 30;
 }
