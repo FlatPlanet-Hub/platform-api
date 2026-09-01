@@ -66,7 +66,7 @@ builder.Services.AddAuthorization();
 //
 // Strategy (three layers, all must pass):
 //   1. GlobalLimiter[user]     — 1000/min per user (or IP)   — runaway single client
-//   2. GlobalLimiter[project]  —  200/min per project        — noisy neighbour across users
+//   2. GlobalLimiter[project]  —  500/min per project        — noisy neighbour across users
 //   3. "project-query" policy  —   40/min per (project,user) — one user hoarding a project's quota
 //
 // Rationale for a multi-user app like ApprovalFlow (~25 concurrent users on ONE projectId):
@@ -74,8 +74,11 @@ builder.Services.AddAuthorization();
 //     `get-app-data` calls (~21 queries each) exhausted the window.
 //   - Layering the cap: any single user is bounded to 40/min inside a project (stops a
 //     runaway Claude loop or a single misbehaving script), while the project as a whole
-//     can absorb up to 200/min from healthy multi-user activity (25 users × ~8 req/min
-//     of realistic interactive load = 200). DB connection pool remains protected.
+//     can absorb up to 500/min. Sizing: realistic interactive load is ~8/min per user; at 25
+//     users that averages 200/min, so 500/min gives ~2.5x headroom for concurrent bursts
+//     (bulk approvals, morning login stampede). Twelve users simultaneously at their full
+//     40/min personal cap = 480/min — still fits under the project ceiling. Beyond that, the
+//     project cap engages before the DB connection pool is at risk.
 builder.Services.AddRateLimiter(options =>
 {
     // Global limiter — chained: user-cap AND project-cap must both permit.
@@ -96,10 +99,15 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
         }),
-        // Layer 2: per-project — 200/min. Only fires on routes that carry a
+        // Layer 2: per-project — 500/min. Only fires on routes that carry a
         // {projectId} template value. Endpoints without one get a no-op partition,
         // so this layer is inert for auth/admin endpoints and only guards the
         // project-scoped surface (/api/projects/{id}/*).
+        //
+        // 500 is chosen against the per-user layer below (40/min per user):
+        //   - realistic interactive load: 25 users × 8/min = 200/min → 2.5x headroom
+        //   - up to 12 users at their FULL 40/min personal cap = 480/min → still fits
+        //   - a runaway app that somehow gets past layer 3 caps out here
         PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
             var projectId = httpContext.GetRouteValue("projectId")?.ToString();
@@ -109,7 +117,7 @@ builder.Services.AddRateLimiter(options =>
             }
             return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 200,
+                PermitLimit = 500,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
