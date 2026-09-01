@@ -60,45 +60,81 @@ builder.Services.AddAuthorization();
 //     RequireRateLimiting("Y") at MapControllers level.
 //   - To run TWO checks against a single request, use GlobalLimiter + a named policy.
 //     GlobalLimiter runs first and is independent of endpoint policies, so it stacks.
+//   - GlobalLimiter can chain multiple partitioned limiters via CreateChained — every
+//     chained limiter must permit the request, so this stacks additional ceilings on
+//     top of the per-user global cap.
 //
-// Strategy:
-//   - GlobalLimiter (per-user, 1000/min)   → guard against runaway clients on any endpoint
-//   - "project-query" named policy (per-project, 30/min) → applied to /query/* via attribute
+// Strategy (three layers, all must pass):
+//   1. GlobalLimiter[user]     — 1000/min per user (or IP)   — runaway single client
+//   2. GlobalLimiter[project]  —  200/min per project        — noisy neighbour across users
+//   3. "project-query" policy  —   40/min per (project,user) — one user hoarding a project's quota
+//
+// Rationale for a multi-user app like ApprovalFlow (~25 concurrent users on ONE projectId):
+//   - The old per-project 100/min meant those 25 users SHARED 100 requests/min. Five simultaneous
+//     `get-app-data` calls (~21 queries each) exhausted the window.
+//   - Layering the cap: any single user is bounded to 40/min inside a project (stops a
+//     runaway Claude loop or a single misbehaving script), while the project as a whole
+//     can absorb up to 200/min from healthy multi-user activity (25 users × ~8 req/min
+//     of realistic interactive load = 200). DB connection pool remains protected.
 builder.Services.AddRateLimiter(options =>
 {
-    // Global limiter — runs on every request, in addition to any named endpoint policy.
-    // Partitioned per user (or IP for anonymous) so one user can't burst >1000/min.
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-    {
-        var userId = httpContext.User.FindFirst("sub")?.Value
-                     ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                     ?? "anonymous";
-        return RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
+    // Global limiter — chained: user-cap AND project-cap must both permit.
+    // Runs on every request, in addition to any named endpoint policy.
+    options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
+        // Layer 1: per-user (or IP for anonymous) — 1000/min. Guards against a
+        // runaway single client hammering ANY endpoint.
+        PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
-            PermitLimit = 1000,
-            Window = TimeSpan.FromMinutes(1),
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            QueueLimit = 0
-        });
-    });
+            var userId = httpContext.User.FindFirst("sub")?.Value
+                         ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                         ?? "anonymous";
+            return RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 1000,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+        }),
+        // Layer 2: per-project — 200/min. Only fires on routes that carry a
+        // {projectId} template value. Endpoints without one get a no-op partition,
+        // so this layer is inert for auth/admin endpoints and only guards the
+        // project-scoped surface (/api/projects/{id}/*).
+        PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        {
+            var projectId = httpContext.GetRouteValue("projectId")?.ToString();
+            if (string.IsNullOrEmpty(projectId))
+            {
+                return RateLimitPartition.GetNoLimiter<string>("no-project");
+            }
+            return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 200,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+        })
+    );
 
-    // Per-project fixed window — applies to /api/projects/{projectId}/query/* via
-    // [EnableRateLimiting("project-query")] on each action method in QueryController.
-    // Partitioned by projectId route value so a misbehaving Claude session on one project
-    // cannot exhaust the DB connection pool for everyone else. 30 req/min is generous for
-    // interactive use but stops a tight retry loop within seconds.
+    // Layer 3: named policy for query endpoints only.
+    // Applied via [EnableRateLimiting("project-query")] on QueryController actions.
+    // Partitioned by (projectId, userId) so one user's runaway retries burn only
+    // their own 40/min slice — other users on the same project stay responsive.
     options.AddPolicy("project-query", httpContext =>
     {
-        var projectId = httpContext.GetRouteValue("projectId")?.ToString()
+        var projectId = httpContext.GetRouteValue("projectId")?.ToString() ?? "unknown";
+        var userId    = httpContext.User.FindFirst("sub")?.Value
                         ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                        ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
+                        ?? "anonymous";
+        var key = $"{projectId}::{userId}";
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
-            // 100/min is well above realistic interactive usage (typical Claude session
-            // is 5-15/min; heavy multi-dev work tops out around 30-40/min). Catches the
-            // runaway-loop pattern (which is usually 500-900/min) while keeping legitimate
-            // workloads invisible to the limit.
-            PermitLimit = 100,
+            // 40/min per (project, user) covers realistic interactive load —
+            // ApprovalFlow's batched `get-app-data` fires ~21 queries per login,
+            // so a user can log in and browse without tripping. A tight retry
+            // loop hits the ceiling in ~1 second and self-throttles.
+            PermitLimit = 40,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = 0
