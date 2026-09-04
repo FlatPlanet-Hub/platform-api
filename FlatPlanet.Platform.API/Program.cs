@@ -54,6 +54,17 @@ builder.Services.AddAuthorization();
 
 // Rate limiting
 //
+// Per-project overrides (TODO: move to projects table + admin API — issue #47)
+// Keyed by projectId → (perUserPerMin, perProjectPerMin).
+// Training / workshop projects need higher ceilings because ~30 students hitting
+// the same lab repeatedly is exactly the pattern the defaults were built to catch.
+var RateLimitOverrides = new Dictionary<string, (int PerUser, int PerProject)>
+{
+    // Wayfinder — training app, temporary override (added 2026-09-04).
+    // Revert when training sessions wind down or per-project override lands.
+    ["f1b3c0bf-b16b-46ec-a25d-ab000ec617ba"] = (PerUser: 200, PerProject: 3000),
+};
+//
 // NOTE on ASP.NET Core rate limit middleware behavior:
 //   - The RateLimitingMiddleware supports ONLY ONE named policy per endpoint.
 //   - [EnableRateLimiting("X")] on an endpoint REPLACES any policy attached via
@@ -115,9 +126,10 @@ builder.Services.AddRateLimiter(options =>
             {
                 return RateLimitPartition.GetNoLimiter<string>("no-project");
             }
+            var perProjectLimit = RateLimitOverrides.TryGetValue(projectId, out var ov) ? ov.PerProject : 500;
             return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 500,
+                PermitLimit = perProjectLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -136,13 +148,15 @@ builder.Services.AddRateLimiter(options =>
                         ?? httpContext.Connection.RemoteIpAddress?.ToString()
                         ?? "anonymous";
         var key = $"{projectId}::{userId}";
+        var perUserLimit = RateLimitOverrides.TryGetValue(projectId, out var ov) ? ov.PerUser : 40;
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
             // 40/min per (project, user) covers realistic interactive load —
             // ApprovalFlow's batched `get-app-data` fires ~21 queries per login,
             // so a user can log in and browse without tripping. A tight retry
             // loop hits the ceiling in ~1 second and self-throttles.
-            PermitLimit = 40,
+            // Training projects override this via RateLimitOverrides above.
+            PermitLimit = perUserLimit,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = 0
