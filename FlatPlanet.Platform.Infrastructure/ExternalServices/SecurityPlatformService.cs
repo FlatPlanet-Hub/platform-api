@@ -110,7 +110,7 @@ public sealed class SecurityPlatformService : ISecurityPlatformService
         {
             ("owner",     new[] { "read", "write", "ddl", "manage_members", "delete_project" }),
             ("developer", new[] { "read", "write", "ddl", "manage_members" }),
-            ("user",      new[] { "read" })
+            ("user",      new[] { "read", "write" })
         };
 
         foreach (var (roleName, rolePerms) in assignments)
