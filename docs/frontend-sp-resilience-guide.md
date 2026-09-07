@@ -138,13 +138,20 @@ project: a `user_token` (one human) gets the strict tier, while a `service_token
 or `api_token` (a backend app authenticating on behalf of many end-users) gets a
 higher tier, because that single token's traffic represents an entire app's user
 base, not one person. A missing or unrecognized `token_type` falls back to the
-strict `user_token` tier (fail closed).
+strict `user_token` tier (fail closed). In practice only `api_token` is stamped
+today — `service_token` is reserved for future work, and will get the same
+higher tier once it's in use.
+
+The `service_token`/`api_token` ceilings are sized to stay below what the
+backend's Supabase connection pool can sustain (20 connections, tuned for
+PgBouncer transaction mode) — not just to accommodate observed traffic — so
+raising these numbers further requires re-checking the pool's headroom first.
 
 | Layer | Scope | `user_token` | `service_token` / `api_token` |
 |---|---|---|---|
 | 1 | per user (or IP), global | 1,000/min | 1,000/min |
-| 2 | per project | 500/min | 3,000/min |
-| 3 | per (project, user) — `/api/projects/{id}/query/{read,write,ddl}` | 40/min | 500/min |
+| 2 | per project | 500/min | 1,500/min |
+| 3 | per (project, user) — `/api/projects/{id}/query/{read,write,ddl}` | 40/min | 150/min |
 
 No per-project configuration is needed for any of this — every FlatPlanet app
 gets the appropriate ceiling automatically based on the kind of token it

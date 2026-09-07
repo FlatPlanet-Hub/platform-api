@@ -84,21 +84,30 @@ builder.Services.AddAuthorization();
 //
 // Strategy (three layers, all must pass):
 //   1. GlobalLimiter[user]     — 1000/min per user (or IP), both token types — runaway single client
-//   2. GlobalLimiter[project]  —  500/min (user_token) or 3000/min (service/api_token) per project
-//   3. "project-query" policy  —   40/min (user_token) or  500/min (service/api_token) per (project,user)
+//   2. GlobalLimiter[project]  —  500/min (user_token) or 1500/min (service/api_token) per project
+//   3. "project-query" policy  —   40/min (user_token) or  150/min (service/api_token) per (project,user)
 //
-// Rationale for the service/api ceilings, mirrored from what was proven safe for
-// Wayfinder (~25 concurrent users sharing one service token, one projectId):
-//   - Realistic interactive load: 25 users × 8/min = 200/min → the 3000/min project
-//     ceiling gives huge headroom for bulk operations and login stampedes, without
-//     being so high it stops catching a genuinely runaway backend loop.
-//   - 500/min per (project, user)-equivalent slice for a service token covers a single
+// Rationale for the service/api ceilings — bounded by the DB connection pool, not by
+// Wayfinder's traffic shape:
+//   - The Npgsql pool is sized for Supabase's PgBouncer transaction-mode limits (see
+//     `SupabaseSettings.cs`, Maximum Pool Size=20 — do NOT bump the pool to fit a higher
+//     rate limit; it was deliberately tuned for PgBouncer and raising it risks exhausting
+//     Supabase's connection budget across all FlatPlanet apps sharing that pooler).
+//   - 20 connections × 60s ÷ ~200ms average query ≈ 6000/min theoretical max throughput;
+//     realistic sustainable throughput under bursts (queueing, slower queries, concurrent
+//     apps) is more like 1500-2000/min. 1500/min per project sits comfortably below that,
+//     so the rate limiter throttles clients before the pool itself saturates and starts
+//     queuing/timing out connection acquisition.
+//   - 150/min per (project, user)-equivalent slice for a service token covers a single
 //     misbehaving downstream user's traffic (routed through the shared token) without
 //     starving the rest of the app's users, mirroring the 40/min headroom ratio the
 //     user_token tier already uses relative to its own project cap (500/min).
-//   - This 3000/500 pairing is exactly Wayfinder's temporary override, which ran in
-//     production without causing backend/DB stress — so it's promoted to the default
-//     for every service/api token rather than kept as a one-off.
+//   - These ceilings apply today to `api_token` — the only token type JwtService.cs
+//     actually stamps (`token_type: "api_token"`, see JwtService.cs). `service_token` is
+//     reserved for future work; both hit this higher tier once it exists.
+//   - Keep this pairing (1500/150) and the pool size (`SupabaseSettings.cs`, currently 20)
+//     in sync — if the pool size ever changes, re-derive these ceilings from the formula
+//     above rather than drifting them independently.
 static string GetRateLimitTokenType(HttpContext httpContext)
 {
     var tokenType = httpContext.User.FindFirst("token_type")?.Value;
@@ -129,10 +138,12 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
         }),
-        // Layer 2: per-project — 500/min (user_token) or 3000/min (service/api_token).
-        // Only fires on routes that carry a {projectId} template value. Endpoints
-        // without one get a no-op partition, so this layer is inert for auth/admin
-        // endpoints and only guards the project-scoped surface (/api/projects/{id}/*).
+        // Layer 2: per-project — 500/min (user_token) or 1500/min (service/api_token).
+        // 1500/min is sized to stay below the Npgsql pool capacity (Maximum Pool Size=20
+        // in SupabaseSettings.cs) — see the rationale block above this file's rate-limiting
+        // section for the formula. Only fires on routes that carry a {projectId} template
+        // value. Endpoints without one get a no-op partition, so this layer is inert for
+        // auth/admin endpoints and only guards the project-scoped surface (/api/projects/{id}/*).
         PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
             var projectId = httpContext.GetRouteValue("projectId")?.ToString();
@@ -140,7 +151,7 @@ builder.Services.AddRateLimiter(options =>
             {
                 return RateLimitPartition.GetNoLimiter<string>("no-project");
             }
-            var perProjectLimit = GetRateLimitTokenType(httpContext) == "service" ? 3000 : 500;
+            var perProjectLimit = GetRateLimitTokenType(httpContext) == "service" ? 1500 : 500;
             return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = perProjectLimit,
@@ -166,10 +177,11 @@ builder.Services.AddRateLimiter(options =>
         // user_token — ApprovalFlow's batched `get-app-data` fires ~21 queries per
         // login, so a user can log in and browse without tripping. A tight retry
         // loop hits the ceiling in ~1 second and self-throttles.
-        // service_token/api_token get 500/min: that identity represents an app's
+        // service_token/api_token get 150/min: that identity represents an app's
         // whole user base sharing one token, so its "one user" slice needs to be
-        // sized like a project, not like a person.
-        var perUserLimit = GetRateLimitTokenType(httpContext) == "service" ? 500 : 40;
+        // sized like a project, not like a person — bounded, like Layer 2, by the
+        // Npgsql pool capacity (see SupabaseSettings.cs and the rationale block above).
+        var perUserLimit = GetRateLimitTokenType(httpContext) == "service" ? 150 : 40;
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = perUserLimit,

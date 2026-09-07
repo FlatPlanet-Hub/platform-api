@@ -11,8 +11,9 @@ Versioning follows [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.P
 
 - **Rate limiting — token-type-differentiated ceilings, per-project override removed** — `Program.cs` no longer hardcodes a per-projectId rate-limit override dictionary (added for Wayfinder in commit `39b736f`). That override turned out to be masking a write-permission bug on SP's `user` role, not an actual ceiling problem — but the underlying architecture reason it got hit is real: an app authenticating with a single `service_token`/`api_token` on behalf of N concurrent end-users collapses all of them onto one rate-limit bucket. Ceilings are now derived from the JWT's `token_type` claim instead of a per-project hardcode:
   - `user_token` (unchanged): 1000/min per-user (Layer 1), 500/min per-project (Layer 2), 40/min per (project, user) (Layer 3, `project-query` policy).
-  - `service_token` / `api_token` (new default for every app, not just Wayfinder): 1000/min per-user (Layer 1, unchanged), **3000/min** per-project (Layer 2), **500/min** per (project, user) (Layer 3).
+  - `service_token` / `api_token` (new default for every app, not just Wayfinder): 1000/min per-user (Layer 1, unchanged), **1500/min** per-project (Layer 2), **150/min** per (project, user) (Layer 3). Sized to stay below the Supabase connection pool's throughput ceiling (Maximum Pool Size=20 in `SupabaseSettings.cs`) rather than bumping the pool to fit a higher rate limit.
   - Missing or unrecognized `token_type` falls back to the strict `user_token` tier — fail closed, not open.
+  - `api_token` is the only token type actually stamped today (`JwtService.cs`); `service_token` is reserved for future work — both hit the higher tier once it exists.
   - Every FlatPlanet app with a service/api token benefits automatically; zero client changes, zero per-app configuration.
 
 ---
