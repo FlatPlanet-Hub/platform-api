@@ -54,16 +54,23 @@ builder.Services.AddAuthorization();
 
 // Rate limiting
 //
-// Per-project overrides (TODO: move to projects table + admin API — issue #47)
-// Keyed by projectId → (perUserPerMin, perProjectPerMin).
-// Training / workshop projects need higher ceilings because ~30 students hitting
-// the same lab repeatedly is exactly the pattern the defaults were built to catch.
-var RateLimitOverrides = new Dictionary<string, (int PerUser, int PerProject)>
-{
-    // Wayfinder — training app, temporary override (added 2026-09-04).
-    // Revert when training sessions wind down or per-project override lands.
-    ["f1b3c0bf-b16b-46ec-a25d-ab000ec617ba"] = (PerUser: 200, PerProject: 3000),
-};
+// Token-type-differentiated ceilings (replaces the old per-project override
+// hardcode — see git history for the Wayfinder-specific dictionary this
+// superseded). The architecture problem that override was patching around is
+// real: an app that authenticates with a single service/api token on behalf
+// of N concurrent end-users collapses ALL of those users onto one rate-limit
+// bucket at the per-project and per-(project,user) layers. A human `user_token`
+// never has that problem — one token, one person. So instead of hardcoding a
+// higher ceiling per projectId, we read the JWT's `token_type` claim and give
+// service/api tokens a higher ceiling everywhere, automatically, for every
+// FlatPlanet app — zero per-app configuration and zero client changes.
+//
+// GetRateLimitTokenType() below reads `token_type` and normalizes it to either
+// "service" (service_token / api_token) or "user" (user_token, or anything
+// else — missing claim, unrecognized value, etc). Unrecognized/missing always
+// falls back to "user", i.e. the strict limits — fail closed, not open. A
+// legitimate token minted before this claim existed just gets rate-limited
+// more strictly, which is a safe degradation, not a data-loss risk.
 //
 // NOTE on ASP.NET Core rate limit middleware behavior:
 //   - The RateLimitingMiddleware supports ONLY ONE named policy per endpoint.
@@ -76,20 +83,32 @@ var RateLimitOverrides = new Dictionary<string, (int PerUser, int PerProject)>
 //     top of the per-user global cap.
 //
 // Strategy (three layers, all must pass):
-//   1. GlobalLimiter[user]     — 1000/min per user (or IP)   — runaway single client
-//   2. GlobalLimiter[project]  —  500/min per project        — noisy neighbour across users
-//   3. "project-query" policy  —   40/min per (project,user) — one user hoarding a project's quota
+//   1. GlobalLimiter[user]     — 1000/min per user (or IP), both token types — runaway single client
+//   2. GlobalLimiter[project]  —  500/min (user_token) or 3000/min (service/api_token) per project
+//   3. "project-query" policy  —   40/min (user_token) or  500/min (service/api_token) per (project,user)
 //
-// Rationale for a multi-user app like ApprovalFlow (~25 concurrent users on ONE projectId):
-//   - The old per-project 100/min meant those 25 users SHARED 100 requests/min. Five simultaneous
-//     `get-app-data` calls (~21 queries each) exhausted the window.
-//   - Layering the cap: any single user is bounded to 40/min inside a project (stops a
-//     runaway Claude loop or a single misbehaving script), while the project as a whole
-//     can absorb up to 500/min. Sizing: realistic interactive load is ~8/min per user; at 25
-//     users that averages 200/min, so 500/min gives ~2.5x headroom for concurrent bursts
-//     (bulk approvals, morning login stampede). Twelve users simultaneously at their full
-//     40/min personal cap = 480/min — still fits under the project ceiling. Beyond that, the
-//     project cap engages before the DB connection pool is at risk.
+// Rationale for the service/api ceilings, mirrored from what was proven safe for
+// Wayfinder (~25 concurrent users sharing one service token, one projectId):
+//   - Realistic interactive load: 25 users × 8/min = 200/min → the 3000/min project
+//     ceiling gives huge headroom for bulk operations and login stampedes, without
+//     being so high it stops catching a genuinely runaway backend loop.
+//   - 500/min per (project, user)-equivalent slice for a service token covers a single
+//     misbehaving downstream user's traffic (routed through the shared token) without
+//     starving the rest of the app's users, mirroring the 40/min headroom ratio the
+//     user_token tier already uses relative to its own project cap (500/min).
+//   - This 3000/500 pairing is exactly Wayfinder's temporary override, which ran in
+//     production without causing backend/DB stress — so it's promoted to the default
+//     for every service/api token rather than kept as a one-off.
+static string GetRateLimitTokenType(HttpContext httpContext)
+{
+    var tokenType = httpContext.User.FindFirst("token_type")?.Value;
+    return tokenType switch
+    {
+        "service_token" or "api_token" => "service",
+        _ => "user" // includes "user_token", missing claim, and any unrecognized value — fail closed
+    };
+}
+
 builder.Services.AddRateLimiter(options =>
 {
     // Global limiter — chained: user-cap AND project-cap must both permit.
@@ -110,15 +129,10 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
         }),
-        // Layer 2: per-project — 500/min. Only fires on routes that carry a
-        // {projectId} template value. Endpoints without one get a no-op partition,
-        // so this layer is inert for auth/admin endpoints and only guards the
-        // project-scoped surface (/api/projects/{id}/*).
-        //
-        // 500 is chosen against the per-user layer below (40/min per user):
-        //   - realistic interactive load: 25 users × 8/min = 200/min → 2.5x headroom
-        //   - up to 12 users at their FULL 40/min personal cap = 480/min → still fits
-        //   - a runaway app that somehow gets past layer 3 caps out here
+        // Layer 2: per-project — 500/min (user_token) or 3000/min (service/api_token).
+        // Only fires on routes that carry a {projectId} template value. Endpoints
+        // without one get a no-op partition, so this layer is inert for auth/admin
+        // endpoints and only guards the project-scoped surface (/api/projects/{id}/*).
         PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
             var projectId = httpContext.GetRouteValue("projectId")?.ToString();
@@ -126,7 +140,7 @@ builder.Services.AddRateLimiter(options =>
             {
                 return RateLimitPartition.GetNoLimiter<string>("no-project");
             }
-            var perProjectLimit = RateLimitOverrides.TryGetValue(projectId, out var ov) ? ov.PerProject : 500;
+            var perProjectLimit = GetRateLimitTokenType(httpContext) == "service" ? 3000 : 500;
             return RateLimitPartition.GetFixedWindowLimiter(projectId, _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = perProjectLimit,
@@ -140,7 +154,7 @@ builder.Services.AddRateLimiter(options =>
     // Layer 3: named policy for query endpoints only.
     // Applied via [EnableRateLimiting("project-query")] on QueryController actions.
     // Partitioned by (projectId, userId) so one user's runaway retries burn only
-    // their own 40/min slice — other users on the same project stay responsive.
+    // their own slice — other users on the same project stay responsive.
     options.AddPolicy("project-query", httpContext =>
     {
         var projectId = httpContext.GetRouteValue("projectId")?.ToString() ?? "unknown";
@@ -148,14 +162,16 @@ builder.Services.AddRateLimiter(options =>
                         ?? httpContext.Connection.RemoteIpAddress?.ToString()
                         ?? "anonymous";
         var key = $"{projectId}::{userId}";
-        var perUserLimit = RateLimitOverrides.TryGetValue(projectId, out var ov) ? ov.PerUser : 40;
+        // 40/min per (project, user) covers realistic interactive load for a human
+        // user_token — ApprovalFlow's batched `get-app-data` fires ~21 queries per
+        // login, so a user can log in and browse without tripping. A tight retry
+        // loop hits the ceiling in ~1 second and self-throttles.
+        // service_token/api_token get 500/min: that identity represents an app's
+        // whole user base sharing one token, so its "one user" slice needs to be
+        // sized like a project, not like a person.
+        var perUserLimit = GetRateLimitTokenType(httpContext) == "service" ? 500 : 40;
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
-            // 40/min per (project, user) covers realistic interactive load —
-            // ApprovalFlow's batched `get-app-data` fires ~21 queries per login,
-            // so a user can log in and browse without tripping. A tight retry
-            // loop hits the ceiling in ~1 second and self-throttles.
-            // Training projects override this via RateLimitOverrides above.
             PermitLimit = perUserLimit,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,

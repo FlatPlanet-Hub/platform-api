@@ -340,3 +340,27 @@ Multiple rapid deploys today left Azure App Service with a stuck Kudu deployment
 | 4 | SP bug: `platform_owner` bypass missing in `AuthorizeAsync` | `flatplanet-security-platform` | P2 — Chris got 403 when no row in user_app_roles |
 
 ---
+
+## Session: Rate Limit — Token-Type Differentiation (Wayfinder Override Revert)
+
+**Date**: 2026-09-07
+**Branch**: `fix/rate-limit-token-type-differentiation` (off `main`)
+
+---
+
+### What Was Done
+
+Reverted the Wayfinder-specific per-project rate-limit override added in commit `39b736f` (`RateLimitOverrides` dictionary keyed by projectId, hardcoded 200/min per-user + 3000/min per-project for Wayfinder's projectId) in favor of a general, token-type-differentiated ceiling in `FlatPlanet.Platform.API/Program.cs`.
+
+**Why the override was dead weight:** the Wayfinder rate-limit issue that prompted it turned out to be a write-permission bug on SP's `user` role — not an actual ceiling problem. But the underlying architecture reason it *looked* like a rate-limit issue is real: an app authenticating with one shared `service_token`/`api_token` on behalf of N concurrent users collapses all of them onto a single bucket at the per-project and per-(project,user) layers.
+
+**Fix:** ceilings now derive from the JWT's `token_type` claim (`GetRateLimitTokenType()` helper), not from a per-projectId hardcode:
+- `user_token` (unchanged): 1000/min per-user, 500/min per-project, 40/min per (project, user).
+- `service_token` / `api_token` (new default, every app): 1000/min per-user (unchanged), 3000/min per-project, 500/min per (project, user) — same numbers Wayfinder's temporary override proved safe in production, now promoted to the general default.
+- Missing/unrecognized `token_type` → falls back to the strict `user_token` tier (fail closed).
+
+Every FlatPlanet app with a service/api token gets the higher ceiling automatically; zero client changes, zero per-app configuration going forward.
+
+Also updated `docs/frontend-sp-resilience-guide.md` §7 (was stale — still described the pre-PR#39/40 100/min-per-project single-layer model) and `CHANGELOG.md` (`[Unreleased]`).
+
+---

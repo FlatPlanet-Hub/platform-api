@@ -132,10 +132,23 @@ What this means for the frontend:
 
 ## 7. HTTP 429 — Too Many Requests (rate limiting)
 
-As of PR #40, HubApi rate limits `/api/projects/{id}/query/{read,write,ddl}` endpoints:
+HubApi rate limits requests in three layers, all of which must pass. Ceilings are
+now **differentiated by the JWT's `token_type` claim** rather than hardcoded per
+project: a `user_token` (one human) gets the strict tier, while a `service_token`
+or `api_token` (a backend app authenticating on behalf of many end-users) gets a
+higher tier, because that single token's traffic represents an entire app's user
+base, not one person. A missing or unrecognized `token_type` falls back to the
+strict `user_token` tier (fail closed).
 
-- **100 requests per minute per project** (shared across all users/agents on that project)
-- **1,000 requests per minute per user** (across everything the user does on the hub)
+| Layer | Scope | `user_token` | `service_token` / `api_token` |
+|---|---|---|---|
+| 1 | per user (or IP), global | 1,000/min | 1,000/min |
+| 2 | per project | 500/min | 3,000/min |
+| 3 | per (project, user) — `/api/projects/{id}/query/{read,write,ddl}` | 40/min | 500/min |
+
+No per-project configuration is needed for any of this — every FlatPlanet app
+gets the appropriate ceiling automatically based on the kind of token it
+authenticates with.
 
 A 429 response looks like:
 ```
