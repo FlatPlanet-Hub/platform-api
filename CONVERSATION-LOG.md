@@ -340,3 +340,49 @@ Multiple rapid deploys today left Azure App Service with a stuck Kudu deployment
 | 4 | SP bug: `platform_owner` bypass missing in `AuthorizeAsync` | `flatplanet-security-platform` | P2 — Chris got 403 when no row in user_app_roles |
 
 ---
+
+## Session: Rate Limit — Token-Type Differentiation (Wayfinder Override Revert)
+
+**Date**: 2026-09-07
+**Branch**: `fix/rate-limit-token-type-differentiation` (off `main`)
+
+---
+
+### What Was Done
+
+Reverted the Wayfinder-specific per-project rate-limit override added in commit `39b736f` (`RateLimitOverrides` dictionary keyed by projectId, hardcoded 200/min per-user + 3000/min per-project for Wayfinder's projectId) in favor of a general, token-type-differentiated ceiling in `FlatPlanet.Platform.API/Program.cs`.
+
+**Why the override was dead weight:** the Wayfinder rate-limit issue that prompted it turned out to be a write-permission bug on SP's `user` role — not an actual ceiling problem. But the underlying architecture reason it *looked* like a rate-limit issue is real: an app authenticating with one shared `service_token`/`api_token` on behalf of N concurrent users collapses all of them onto a single bucket at the per-project and per-(project,user) layers.
+
+**Fix:** ceilings now derive from the JWT's `token_type` claim (`GetRateLimitTokenType()` helper), not from a per-projectId hardcode:
+- `user_token` (unchanged): 1000/min per-user, 500/min per-project, 40/min per (project, user).
+- `service_token` / `api_token` (new default, every app): 1000/min per-user (unchanged), 1500/min per-project, 150/min per (project, user) — revised down from an initial 3000/500 pairing after review found the 20-connection Supabase pool (tuned for PgBouncer transaction mode) couldn't safely absorb it; 1500/150 sits below the pool's realistic sustainable throughput instead. `api_token` is the only token type actually stamped today (`JwtService.cs`); `service_token` is reserved for future work.
+- Missing/unrecognized `token_type` → falls back to the strict `user_token` tier (fail closed).
+
+Every FlatPlanet app with a service/api token gets the higher ceiling automatically; zero client changes, zero per-app configuration going forward.
+
+Also updated `docs/frontend-sp-resilience-guide.md` §7 (was stale — still described the pre-PR#39/40 100/min-per-project single-layer model) and `CHANGELOG.md` (`[Unreleased]`).
+
+---
+
+### Follow-up: Pool-Size Risk (Lightning Review)
+
+**Date**: 2026-09-07 (same session, same branch)
+
+Lightning's review flagged that the initial service-token ceilings (3000/min per-project, 500/min per (project,user)) were sized to Wayfinder's traffic pattern, not to what the DB connection pool can actually sustain. `SupabaseSettings.cs`'s `Maximum Pool Size=20` was deliberately tuned for Supabase's PgBouncer transaction-mode limits — bumping the pool to fit the rate limit was rejected as unsafe.
+
+**Fix:** revised the ceilings down instead of raising the pool:
+- Per-project (Layer 2, service/api_token): **1500/min** (was 3000).
+- Per-(project,user) (Layer 3, service/api_token): **150/min** (was 500).
+- `user_token` limits unchanged (500/project, 40/(project,user)).
+
+Rationale (now in `Program.cs`): 20 pool connections × 60s ÷ ~200ms average query ≈ 6000/min theoretical max; realistic sustainable throughput under bursts is more like 1500-2000/min, so 1500/min sits comfortably below the pool ceiling.
+
+Also:
+- Fixed the stale comment in `SupabaseSettings.cs` (said "per-project rate limiting at 100/min", which was already outdated before this session) and added a cross-reference so `Program.cs`'s ceilings and the pool size don't drift apart independently.
+- Corrected `service_token` doc accuracy across `Program.cs`, `CHANGELOG.md`, and this log: `JwtService.cs` only ever stamps `token_type: "api_token"` — no code path stamps `service_token` today. Wording now says `api_token` gets the higher tier today; `service_token` is reserved for future work and will hit the same tier once it exists.
+- Updated `docs/frontend-sp-resilience-guide.md` §7's table to 1500/150.
+
+Verified with `dotnet build FlatPlanet.Platform.slnx` (clean) and a grep pass confirming 1500/150 (not 3000/500) appear consistently in `Program.cs`, `CHANGELOG.md`, this log, and the resilience guide.
+
+---
